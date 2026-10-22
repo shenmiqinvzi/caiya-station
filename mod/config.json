@@ -1,0 +1,73 @@
+{
+  "Enabled": true,
+  "Limits": {
+    "MaxStacks": 12,
+    "MaxWeightKg": 25.0
+  },
+  "Pricing": {
+    "Rate": 0.1,
+    "Minimum": 200,
+    "Maximum": 5000
+  },
+  "Loss": {
+    "Bands": [
+      { "MaxValue": 2000, "Rate": 0.05 },
+      { "MaxValue": 10000, "Rate": 0.08 },
+      { "MaxValue": 30000, "Rate": 0.12 },
+      { "MaxValue": 9223372036854775807, "Rate": 0.15 }
+    ],
+    "MaximumRate": 0.2,
+    "MaxLostStackFraction": 0.3,
+    "MaxLostValueFraction": 0.5,
+    "MinimumKeptStacks": 1
+  },
+  "Escorts": {
+    "Scavenger": {
+      "Name": "拾荒者团",
+      "Money": 1000,
+      "ItemId": 368,
+      "ItemAmount": 4,
+      "LossFactor": 0.6,
+      "MinimumLossRate": 0.02
+    },
+    "Mercenary": {
+      "Name": "雇佣兵团",
+      "Money": 2000,
+      "ItemId": 890,
+      "ItemAmount": 4,
+      "LossFactor": 0.3,
+      "MinimumLossRate": 0.02
+    }
+  },
+  "Protection": {
+    "ProtectedTags": [ "Quest", "Key", "SpecialKey", "Cash", "Continer", "Backpack", "Character" ],
+    "ContainerTags": [ "Continer", "Backpack" ],
+    "CurrencyTags": [ "Cash" ],
+    "ProtectedNamePrefixes": [ "Quest_", "Item_Quest_", "Key_", "KeyCard_", "Item_Key", "DeliverBox" ],
+    "ProtectedTypeIds": [ 451 ]
+  },
+  "Placement": {
+    "MinimumSeparation": 15.0,
+    "MinimumExtractionDistance": 40.0,
+    "MaximumExtractionDistance": 80.0,
+    "MinimumTeleporterDistance": 15.0,
+    "MaximumSlopeDegrees": 35.0,
+    "SearchRings": [ 8.0, 12.0, 16.0, 22.0 ],
+    "SearchAngles": 16
+  },
+  "Ui": {
+    "PanelWidth": 920,
+    "PanelHeight": 700,
+    "LabelDistance": 80.0,
+    "ShowWorldLabels": true,
+    "UnlockCursor": true
+  },
+  "Keys": {
+    "Diagnostics": "F8"
+  },
+  "Safety": {
+    "RequireInputGuard": true,
+    "ConfirmAboveValue": 10000,
+    "ConfirmWhenSingleStack": true
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "SchemaVersion": 1,
+  "MinimumSeparation": 15.0,
+  "Sites": [
+    {
+      "MapId": "Level_HiddenWarehouse_Main",
+      "SceneName": "Level_HiddenWarehouse",
+      "StationsPerRaid": 1,
+      "Candidates": [
+        { "Id": "wh-entry", "Name": "菜鸭驿站", "X": 440.3, "Y": 0.0, "Z": 124.7, "Yaw": 0.0 },
+        { "Id": "wh-road", "Name": "菜鸭驿站", "X": 432.0, "Y": -0.3, "Z": 196.8, "Yaw": 90.0 },
+        { "Id": "wh-center", "Name": "菜鸭驿站", "X": 324.0, "Y": 0.0, "Z": 322.3, "Yaw": 180.0 },
+        { "Id": "wh-south", "Name": "菜鸭驿站", "X": 325.6, "Y": 0.0, "Z": 112.2, "Yaw": 270.0 },
+        { "Id": "wh-start7", "Name": "菜鸭驿站", "X": 437.4, "Y": 0.0, "Z": 126.2, "Yaw": 45.0 },
+        { "Id": "wh-start9", "Name": "菜鸭驿站", "X": 452.2, "Y": 0.0, "Z": 244.5, "Yaw": 135.0 },
+        { "Id": "wh-house", "Name": "菜鸭驿站", "X": 242.3, "Y": 0.0, "Z": 117.2, "Yaw": 225.0 },
+        { "Id": "wh-marker", "Name": "菜鸭驿站", "X": 383.2, "Y": 0.9, "Z": 305.6, "Yaw": 315.0 },
+        { "Id": "wh-entry1", "Name": "菜鸭驿站", "X": 168.4, "Y": 0.0, "Z": 177.4, "Yaw": 0.0 },
+        { "Id": "wh-exit10", "Name": "菜鸭驿站", "X": 124.9, "Y": 0.0, "Z": 322.7, "Yaw": 90.0 }
+      ]
+    },
+    {
+      "MapId": "Level_Farm_Main",
+      "SceneName": "Level_Farm_01",
+      "StationsPerRaid": 2,
+      "Candidates": [
+        { "Id": "farm-south", "Name": "菜鸭驿站", "X": 315.9, "Y": 0.061, "Z": 273.5, "Yaw": 0.0 },
+        { "Id": "farm-central", "Name": "菜鸭驿站", "X": 512.0, "Y": 0.061, "Z": 402.6, "Yaw": 90.0 },
+        { "Id": "farm-north", "Name": "菜鸭驿站", "X": 527.3, "Y": 0.0, "Z": 731.3, "Yaw": 180.0 },
+        { "Id": "farm-start13", "Name": "菜鸭驿站", "X": 325.7, "Y": 0.0, "Z": 585.0, "Yaw": 270.0 },
+        { "Id": "farm-start9", "Name": "菜鸭驿站", "X": 633.7, "Y": 0.1, "Z": 342.6, "Yaw": 45.0 },
+        { "Id": "farm-start11", "Name": "菜鸭驿站", "X": 670.0, "Y": 0.1, "Z": 523.9, "Yaw": 135.0 },
+        { "Id": "farm-start10", "Name": "菜鸭驿站", "X": 509.4, "Y": 0.0, "Z": 772.1, "Yaw": 225.0 },
+        { "Id": "farm-start12", "Name": "菜鸭驿站", "X": 300.2, "Y": 0.0, "Z": 693.7, "Yaw": 315.0 },
+        { "Id": "farm-start15", "Name": "菜鸭驿站", "X": 660.9, "Y": 0.0, "Z": 774.5, "Yaw": 0.0 },
+        { "Id": "farm-start3", "Name": "菜鸭驿站", "X": 190.1, "Y": 2.1, "Z": 639.8, "Yaw": 90.0 }
+      ]
+    }
+  ]
+}
