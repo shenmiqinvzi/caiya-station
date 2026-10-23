@@ -14,3 +14,9 @@ Write-Host 'Running CaiYaStation domain tests...'
 & dotnet run --project $project --configuration Release --nologo "-p:DuckovPath=$GamePath"
 if ($LASTEXITCODE -ne 0) { throw 'Domain tests failed.' }
 Write-Host 'Domain tests passed.'
+
+$panel = Join-Path $projectRoot 'tools\PanelPreview\PanelPreview.csproj'
+Write-Host 'Checking shipment panel layout (headless)...'
+& dotnet run --project $panel --configuration Release --nologo "-p:DuckovPath=$GamePath"
+if ($LASTEXITCODE -ne 0) { throw 'Panel layout check failed.' }
+Write-Host 'Panel layout check passed.'

@@ -28,6 +28,12 @@ namespace CaiYaStation
         private Notice? _activeNotice;
         private float _noticeStart;
         private float _noticeUntil;
+        private float _noticeFadeUntil;
+
+        /// <summary>How long a banner keeps painting while it fades out.</summary>
+        private const float NoticeFade = 0.45f;
+
+        private float _lastLabelLog = -100f;
         private ShipmentPanel? _panel;
         private string _mapId = "";
         private string _sceneName = "";
@@ -76,7 +82,23 @@ namespace CaiYaStation
         internal ShipmentRuntime Runtime => _runtime;
         internal StationVisuals Visuals => _visuals;
 
-        internal void AttachPanel(ShipmentPanel panel) => _panel = panel;
+        internal void AttachPanel(ShipmentPanel panel)
+        {
+            _panel = panel;
+            panel.Attach(this);
+            panel.ReceiptClosed = OnReceiptClosed;
+        }
+
+        /// <summary>
+        /// Receipts are handed over at the bunker; dismissing one marks it read so the next
+        /// unseen receipt (if any) can follow on the next tick.
+        /// </summary>
+        private void OnReceiptClosed(Receipt receipt)
+        {
+            _store.MarkReceiptViewed(receipt);
+            _lastReceiptCountNotified = _store.Receipts.Count;
+            _log("Receipt read at bunker id=" + receipt.ShipmentId);
+        }
 
         internal void SetInputGuardAvailable(bool available) => _inputGuardAvailable = available;
 
@@ -139,6 +161,9 @@ namespace CaiYaStation
                         ClearVisuals();
                         _announced.Clear();
                         ClearNotices();
+                        // Leaving the bunker with a receipt still open must not trap input in the
+                        // raid; drop the sheet, keep it unread, show it again on the next return.
+                        _panel?.DismissReceipt();
                         _log("Raid start detected, placing new stations");
                     }
                     else if (isBase && _observedRaid)
@@ -146,7 +171,7 @@ namespace CaiYaStation
                         _store.EndRaid(DateTimeOffset.Now);
                         ClearVisuals();
                         ClearNotices();
-                        _panel?.Close();
+                        if (_panel != null && !_panel.IsReceiptOpen) _panel.Close();
                     }
                     if (isRaid) _observedRaid = true;
                     else if (isBase) _observedRaid = false;
@@ -154,7 +179,19 @@ namespace CaiYaStation
 
                 if (isBase)
                 {
-                    _panel?.Close();
+                    // A bunker receipt owns the screen until the player dismisses it; do not
+                    // close it on the next tick the way a station panel is closed.
+                    if (_panel != null && !_panel.IsReceiptOpen) _panel.Close();
+                    var unread = _store.FirstUnreadReceipt();
+                    if (unread != null)
+                    {
+                        if (_panel != null && !_panel.IsOpen && !_panel.IsReceiptOpen)
+                        {
+                            _lastReceiptCountNotified = _store.Receipts.Count;
+                            _panel.OpenReceipt(unread);
+                        }
+                        return;
+                    }
                     var hasNewReceipt = _store.Receipts.Count > 0 && _store.Receipts.Count > _lastReceiptCountNotified;
                     if (!_baseNoticeShown)
                     {
@@ -611,6 +648,7 @@ namespace CaiYaStation
 
         internal bool CanOpen(string stationId)
         {
+            if (!Config.Enabled) return false;
             if (!Ready || !Alive || _panel == null || _panel.IsOpen) return false;
             var station = _store.Session.Find(stationId);
             if (station == null || station.Used) return false;
@@ -626,6 +664,14 @@ namespace CaiYaStation
         internal void OpenStation(string stationId)
         {
             if (LevelManager.Instance == null) return;
+            if (!Config.Enabled)
+            {
+                // Switching the module off mid-session has to be visible, otherwise the leftover
+                // stations look like they are broken instead of switched off.
+                Notify("模组已停用（config.json 里 Enabled 为 false），驿站不接收货物。", false,
+                    "菜鸭驿站 · 已停用", NoticeKind.Warning, "改回 Enabled=true 后重开游戏", "停用");
+                return;
+            }
             var station = _store.Session.Find(stationId);
             if (station == null) return;
             if (!string.Equals(station.MapId, _mapId, StringComparison.Ordinal)
@@ -734,6 +780,7 @@ namespace CaiYaStation
             _activeNotice = _notices.Dequeue();
             _noticeStart = Time.unscaledTime;
             _noticeUntil = _noticeStart + _activeNotice.Duration;
+            _noticeFadeUntil = 0f;
         }
 
         private void ClearNotices()
@@ -742,12 +789,14 @@ namespace CaiYaStation
             _activeNotice = null;
             _noticeStart = 0f;
             _noticeUntil = 0f;
+            _noticeFadeUntil = 0f;
         }
 
         internal void DrawWorldLabels(UiTheme? theme, GUIStyle fallbackStyle, float scale, float logicalWidth, float logicalHeight)
         {
             try
             {
+                if (!_config.Enabled) return;
                 if (_config.Ui.ShowWorldLabels)
                 {
                     var camera = Camera.main;
@@ -756,7 +805,10 @@ namespace CaiYaStation
                         var actor = Actor;
                         if (actor != null)
                         {
-                            foreach (var station in _store.Session.ForMap(_mapId))
+                            // One map can host several scenes (warehouse sub-levels, raid variants);
+                            // a station from another scene would draw its pill at a bogus world point.
+                            foreach (var station in _store.Session.ForMap(_mapId)
+                                         .Where(s => string.Equals(s.SceneName, _sceneName, StringComparison.Ordinal)))
                             {
                                 var position = new Vector3((float)station.X, (float)station.Y + 2.9f, (float)station.Z);
                                 var distance = Vector3.Distance(actor.transform.position, position);
@@ -817,7 +869,14 @@ namespace CaiYaStation
                 }
                 DrawNotice(theme, fallbackStyle, logicalWidth);
             }
-            catch { }
+            catch (Exception exception)
+            {
+                // Drawing a label is not worth throwing a frame, but staying silent about it means
+                // "labels stopped appearing" has no trail at all.
+                if (Time.unscaledTime - _lastLabelLog < 10f) return;
+                _lastLabelLog = Time.unscaledTime;
+                _log("World label draw failed: " + exception.Message);
+            }
         }
 
         private void DrawNotice(UiTheme? theme, GUIStyle fallbackStyle, float logicalWidth)
@@ -826,15 +885,23 @@ namespace CaiYaStation
             var now = Time.unscaledTime;
             if (now >= _noticeUntil)
             {
-                StartNextNotice();
-                if (_activeNotice == null) return;
+                // Give the outgoing banner its fade tail before the next one takes the slot;
+                // cutting straight from full opacity to the next notice reads as a flicker.
+                if (_noticeFadeUntil <= 0f) _noticeFadeUntil = now + NoticeFade;
+                if (now >= _noticeFadeUntil)
+                {
+                    _noticeFadeUntil = 0f;
+                    StartNextNotice();
+                    if (_activeNotice == null) return;
+                }
             }
             var notice = _activeNotice;
             var elapsed = now - _noticeStart;
             var remaining = _noticeUntil - now;
             var enter = Mathf.Clamp01(elapsed / 0.32f);
             var ease = 1f - Mathf.Pow(1f - enter, 3f);
-            var alpha = Mathf.Clamp01(enter * 1.4f) * Mathf.Clamp01(remaining / 0.45f);
+            var fade = _noticeFadeUntil > 0f ? (_noticeFadeUntil - now) / NoticeFade : remaining / NoticeFade;
+            var alpha = Mathf.Clamp01(enter * 1.4f) * Mathf.Clamp01(fade);
             var width = Mathf.Min(760f, logicalWidth - 40f);
             if (width < 300f) width = Mathf.Max(200f, logicalWidth - 20f);
             const float height = 118f;
@@ -980,10 +1047,13 @@ namespace CaiYaStation
             _initialized = false;
             _observedRaid = false;
             _baseNoticeShown = false;
-            _lastReceiptCountNotified = _store.Receipts.Count;
+            _lastReceiptCountNotified = -1;
             _nextPlacementRetry = 0;
             _placementFailureNotified = false;
             ClearNotices();
+            // Switching save files must not spend the old save's unread receipt: drop the sheet
+            // without acknowledging it, then close whatever else was open.
+            _panel?.DismissReceipt();
             _panel?.Close();
         }
 

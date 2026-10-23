@@ -37,11 +37,14 @@ namespace CaiYaStation.Domain
         /// </summary>
         public static string? BlockReason(ItemFacts item, ProtectionRules rules)
         {
+            // Fail closed: an unreadable tag list may be hiding Quest/Key/Cash/Container tags,
+            // so the stack is refused instead of silently slipping past protection.
+            if (item.ProtectionCheckFailed) return "物品信息读取失败，为保护任务/钥匙类物品已禁止寄送";
             if (item.StackCount <= 0) return "数量异常，不能寄送";
             if (item.IsEquipped) return "装备中的物品不可寄送";
             if (rules.ProtectedTypeIds.Contains(item.TypeId)) return "现金/货币类物品不可寄送";
-            if (item.HasContainerInventory) return "容器类物品第一版不寄送";
-            if (item.Tags.Any(tag => rules.ContainerTags.Contains(tag))) return "容器类物品第一版不寄送";
+            if (item.HasContainerInventory) return "容器类物品不可寄送";
+            if (item.Tags.Any(tag => rules.ContainerTags.Contains(tag))) return "容器类物品不可寄送";
             if (item.Tags.Any(tag => rules.CurrencyTags.Contains(tag))) return "现金/货币类物品不可寄送";
             if (item.Tags.Any(tag => rules.ProtectedTags.Contains(tag))) return "任务/钥匙/唯一物品不可寄送";
             foreach (var prefix in rules.ProtectedNamePrefixes)

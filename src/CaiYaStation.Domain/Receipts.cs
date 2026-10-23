@@ -33,6 +33,15 @@ namespace CaiYaStation.Domain
         public string LossCulprits { get; set; } = "";
         public string LossKaomoji { get; set; } = "";
 
+        /// <summary>
+        /// False while the receipt still waits for the player to come back to the bunker.
+        /// Null means it was written before receipts were deferred: treated as already read so
+        /// upgrading does not replay old shipments.
+        /// </summary>
+        public bool? Viewed { get; set; }
+
+        public bool AwaitingView => Viewed == false;
+
         public long DeliveredValue => Delivered.Sum(line => line.GoodsValue);
         public long LostValue => Lost.Sum(line => line.GoodsValue);
         public long TotalUpfront => Fee + EscortMoney;
@@ -50,7 +59,8 @@ namespace CaiYaStation.Domain
 
     public static class Receipts
     {
-        private static readonly string[] FlavorTexts =
+        /// <summary>Flavours used when something was lost on the way.</summary>
+        private static readonly string[] LossFlavorTexts =
         {
             "路上遇到拾荒者拦路，丢了几件。",
             "翻越塌方时摔散了一部分货物。",
@@ -59,7 +69,32 @@ namespace CaiYaStation.Domain
             "箱子在半路被撬开，好在剩下的还在。"
         };
 
-        public static string RandomFlavor(Random random) => FlavorTexts[random.Next(FlavorTexts.Length)];
+        /// <summary>Flavours used when everything arrived: never claim a loss that did not happen.</summary>
+        private static readonly string[] DeliveredFlavorTexts =
+        {
+            "一路顺风，清点无误，整批货都到了。",
+            "车队绕开了巡逻，货一件没少。",
+            "泥路比预想的干，箱子一个没翻。",
+            "护送队说这条线最近安静得很。",
+            "半路遇到卡口，塞了点小钱就过了。"
+        };
+
+        /// <summary>Kaomoji shown on an all-delivered receipt.</summary>
+        public const string DeliveredKaomoji = "(＾▽＾)";
+
+        /// <summary>Kaomoji shown when the loss notice was written before the field existed.</summary>
+        public const string FallbackLossKaomoji = "(´;ω;`)";
+
+        /// <summary>When no culprit was recorded (legacy receipt with losses).</summary>
+        public const string FallbackCulprits = "不明劫掠者";
+
+        public static string RandomFlavor(Random random) => RandomFlavor(random, true);
+
+        public static string RandomFlavor(Random random, bool anyLost)
+        {
+            var pool = anyLost ? LossFlavorTexts : DeliveredFlavorTexts;
+            return pool[random.Next(pool.Length)];
+        }
 
         /// <summary>
         /// Player-facing loss notice: a randomly generated culprit combo (one to three of

@@ -10,20 +10,49 @@ namespace CaiYaStation
     /// </summary>
     internal sealed class UiTheme : IDisposable
     {
-        internal Color Background { get; } = new Color(0.035f, 0.05f, 0.045f, 1f);
-        internal Color Panel { get; } = new Color(0.055f, 0.085f, 0.075f, 0.985f);
-        internal Color Header { get; } = new Color(0.065f, 0.14f, 0.105f, 0.99f);
-        internal Color Card { get; } = new Color(0.075f, 0.105f, 0.095f, 0.98f);
-        internal Color Accent { get; } = new Color(0.32f, 0.90f, 0.58f, 1f);
-        internal Color AccentDeep { get; } = new Color(0.10f, 0.42f, 0.28f, 1f);
-        internal Color Text { get; } = new Color(0.92f, 0.98f, 0.94f, 1f);
-        internal Color TextDim { get; } = new Color(0.66f, 0.76f, 0.70f, 1f);
-        internal Color Good { get; } = new Color(0.42f, 0.92f, 0.62f, 1f);
-        internal Color Warning { get; } = new Color(1f, 0.76f, 0.36f, 1f);
-        internal Color Danger { get; } = new Color(1f, 0.48f, 0.42f, 1f);
-        internal Color Gold { get; } = new Color(1f, 0.82f, 0.36f, 1f);
-        internal Color Purple { get; } = new Color(0.78f, 0.56f, 1f, 1f);
-        internal Color Blue { get; } = new Color(0.48f, 0.72f, 1f, 1f);
+        internal Color Background { get; } = new Color(0.031f, 0.051f, 0.039f, 1f);
+        internal Color Panel { get; } = new Color(0.051f, 0.082f, 0.069f, 0.995f);
+        internal Color Header { get; } = new Color(0.067f, 0.114f, 0.094f, 1f);
+        internal Color Card { get; } = new Color(0.063f, 0.106f, 0.086f, 1f);
+        internal Color Accent { get; } = new Color(0.373f, 0.890f, 0.631f, 1f);
+        internal Color AccentDeep { get; } = new Color(0.184f, 0.498f, 0.357f, 1f);
+        internal Color Text { get; } = new Color(0.925f, 0.965f, 0.941f, 1f);
+        internal Color TextDim { get; } = new Color(0.663f, 0.741f, 0.694f, 1f);
+        internal Color Good { get; } = new Color(0.388f, 0.847f, 0.580f, 1f);
+        internal Color Warning { get; } = new Color(0.941f, 0.706f, 0.361f, 1f);
+        internal Color Danger { get; } = new Color(0.949f, 0.439f, 0.373f, 1f);
+        internal Color Gold { get; } = new Color(1f, 0.820f, 0.400f, 1f);
+        internal Color Purple { get; } = new Color(0.753f, 0.545f, 1f, 1f);
+        internal Color Blue { get; } = new Color(0.455f, 0.663f, 1f, 1f);
+
+        private PanelPalette? _palette;
+
+        /// <summary>Palette handed to the panel renderer so both UI layers share one colour set.</summary>
+        internal PanelPalette Palette
+        {
+            get
+            {
+                if (_palette != null) return _palette;
+                var palette = PanelPalette.Default;
+                palette.Font = _font;
+                palette.Panel = Panel;
+                palette.Header = Header;
+                palette.Card = Card;
+                palette.Accent = Accent;
+                palette.AccentDim = AccentDeep;
+                palette.Text = Text;
+                palette.TextDim = TextDim;
+                palette.Good = Good;
+                palette.Warning = Warning;
+                palette.Danger = Danger;
+                palette.Gold = Gold;
+                palette.Purple = Purple;
+                palette.Blue = Blue;
+                palette.Primary = Accent;
+                _palette = palette;
+                return palette;
+            }
+        }
 
         internal GUIStyle Title { get; }
         internal GUIStyle Subtitle { get; }
@@ -33,6 +62,7 @@ namespace CaiYaStation
         internal GUIStyle SmallRight { get; }
         internal GUIStyle RowName { get; }
         internal GUIStyle RowValue { get; }
+        internal GUIStyle RowValueBold { get; }
         internal GUIStyle Button { get; }
         internal GUIStyle ButtonSmall { get; }
         internal GUIStyle ButtonPrimary { get; }
@@ -81,10 +111,10 @@ namespace CaiYaStation
 
             _white = Solid(Color.white, "CaiYaStation.White");
             _dim = Solid(new Color(0f, 0f, 0f, 0.55f), "CaiYaStation.Dim");
-            _panel = Rounded(72, 16, Panel, new Color(0.11f, 0.32f, 0.23f, 1f), 2, "CaiYaStation.Panel");
-            _header = Rounded(48, 14, Header, new Color(0.15f, 0.45f, 0.30f, 0.8f), 1, "CaiYaStation.Header");
-            _card = Rounded(48, 12, Card, new Color(0.10f, 0.22f, 0.16f, 1f), 1, "CaiYaStation.Card");
-            _cardSelected = Rounded(48, 12, new Color(0.08f, 0.18f, 0.13f, 0.99f), Accent, 2, "CaiYaStation.CardSelected");
+            _panel = Rounded(72, 16, Panel, new Color(0.153f, 0.271f, 0.196f, 1f), 2, "CaiYaStation.Panel");
+            _header = Rounded(48, 14, Header, new Color(0.165f, 0.302f, 0.224f, 0.8f), 1, "CaiYaStation.Header");
+            _card = Rounded(48, 12, Card, new Color(0.122f, 0.204f, 0.169f, 1f), 1, "CaiYaStation.Card");
+            _cardSelected = Rounded(48, 12, new Color(0.078f, 0.129f, 0.106f, 1f), Accent, 1, "CaiYaStation.CardSelected");
             _rowHover = Rounded(32, 8, new Color(1f, 1f, 1f, 0.055f), null, 0, "CaiYaStation.RowHover");
             _rowSelected = Rounded(32, 8, new Color(0.32f, 0.90f, 0.58f, 0.14f), null, 0, "CaiYaStation.RowSelected");
             _button = Rounded(40, 10, new Color(0.10f, 0.15f, 0.13f, 1f), new Color(0.18f, 0.30f, 0.24f, 1f), 1, "CaiYaStation.Button");
@@ -104,6 +134,7 @@ namespace CaiYaStation
             SmallRight = Style(12, FontStyle.Normal, TextDim, TextAnchor.MiddleRight);
             RowName = Style(15, FontStyle.Normal, Text, TextAnchor.MiddleLeft);
             RowValue = Style(13, FontStyle.Normal, TextDim, TextAnchor.MiddleRight);
+            RowValueBold = Style(16, FontStyle.Bold, Text, TextAnchor.MiddleLeft);
             BigValue = Style(24, FontStyle.Bold, Accent, TextAnchor.MiddleRight);
             Section = Style(13, FontStyle.Bold, Accent, TextAnchor.MiddleLeft);
             NoticeTitle = Style(23, FontStyle.Bold, Text, TextAnchor.MiddleLeft);
@@ -154,7 +185,7 @@ namespace CaiYaStation
 
             if (_font != null)
             {
-                foreach (var style in new[] { Title, Subtitle, Label, BodyText, Small, SmallRight, RowName, RowValue, Button, ButtonSmall, ButtonPrimary, CardStyle, CardSelected, CloseButton, RowButton, Badge, PillLabel, WarningText, Tooltip, BigValue, Section, NoticeTitle, NoticeBody, NoticeHint })
+                foreach (var style in new[] { Title, Subtitle, Label, BodyText, Small, SmallRight, RowName, RowValue, RowValueBold, Button, ButtonSmall, ButtonPrimary, CardStyle, CardSelected, CloseButton, RowButton, Badge, PillLabel, WarningText, Tooltip, BigValue, Section, NoticeTitle, NoticeBody, NoticeHint })
                     style.font = _font;
             }
         }

@@ -15,10 +15,15 @@ namespace CaiYaStation
     public sealed class ModBehaviour : Duckov.Modding.ModBehaviour
     {
         internal const string Version = "0.1.0";
+
+        /// <summary>Consecutive failed UI frames before the overlay parks itself until reload.</summary>
+        private const int MaxUiFaults = 5;
         private const string LogPrefix = "[CaiYaStation] ";
         private bool _initialized;
         private bool _showDiagnostics;
         private bool _uiFailed;
+        private float _uiRetryAt;
+        private int _uiFaults;
         private bool _inputFailed;
         private bool _fileLogFailed;
         private bool _recoveryDone;
@@ -276,7 +281,9 @@ namespace CaiYaStation
 
         private void OnGUI()
         {
-            if (!_initialized || _uiFailed) return;
+            if (!_initialized) return;
+            if (_uiFailed) return;
+            if (Time.unscaledTime < _uiRetryAt) return;
             var previousMatrix = GUI.matrix;
             var previousColor = GUI.color;
             try
@@ -291,13 +298,31 @@ namespace CaiYaStation
                 _world?.DrawWorldLabels(theme, _labelStyle!, scale, width, height);
                 _panel?.Draw(width, height);
                 if (_showDiagnostics) DrawDiagnostics(theme, width, height);
+                _uiFaults = 0;
             }
             catch (Exception exception)
             {
-                _uiFailed = true;
-                PanelInputGuard.Set(false);
-                _panel?.Close();
-                Log("UI disabled after exception: " + exception);
+                // One bad frame — a scene swap landing mid-onGUI, a skin that is not built yet — must
+                // not take the whole interface down for the session. Close what is open, hold off for
+                // a moment, then try again; only a fault storm parks the UI until the next reload.
+                _uiFaults++;
+                _uiRetryAt = Time.unscaledTime + Mathf.Min(1f + _uiFaults, 8f);
+                Log("UI frame failed (" + _uiFaults + "/" + MaxUiFaults + "): " + exception);
+                try
+                {
+                    PanelInputGuard.Set(false);
+                    _panel?.Close();
+                }
+                catch (Exception cleanup)
+                {
+                    Log("UI cleanup after failure also failed: " + cleanup.Message);
+                }
+                if (_uiFaults >= MaxUiFaults)
+                {
+                    _uiFailed = true;
+                    Log("UI disabled until reload after " + _uiFaults + " consecutive failures; last: "
+                        + exception.Message);
+                }
             }
             finally
             {

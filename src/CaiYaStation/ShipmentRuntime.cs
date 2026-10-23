@@ -76,6 +76,7 @@ namespace CaiYaStation
         {
             var typeId = item.TypeID;
             var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var tagReadFailed = false;
             try
             {
                 if (item.Tags != null && item.Tags.list != null)
@@ -91,6 +92,7 @@ namespace CaiYaStation
             }
             catch (Exception exception)
             {
+                tagReadFailed = true;
                 _log("Tag read failed for type " + typeId + ": " + exception.Message);
             }
             try
@@ -109,6 +111,7 @@ namespace CaiYaStation
             }
             catch (Exception exception)
             {
+                tagReadFailed = true;
                 _log("Item metadata read failed for type " + typeId + ": " + exception.Message);
             }
 
@@ -131,7 +134,8 @@ namespace CaiYaStation
                 IsEquipped = SafeIsEquipped(item),
                 CanDrop = item.CanDrop,
                 HasContainerInventory = inventory != null && inventory.Capacity > 0,
-                Tags = tags.ToList()
+                Tags = tags.ToList(),
+                ProtectionCheckFailed = tagReadFailed
             };
         }
 
@@ -191,11 +195,17 @@ namespace CaiYaStation
             var plan = Shipments.Prepare(facts, escort, _config.Pricing, _config.Escorts, _config.Loss, _random);
             var shipmentId = _store.NextShipmentId();
             var journal = Shipments.Journal(shipmentId, stationId, station.MapId, facts, plan,
-                DateTimeOffset.Now, station.Name, Receipts.RandomFlavor(_random));
+                DateTimeOffset.Now, station.Name, Receipts.RandomFlavor(_random, plan.Loss.LostStacks > 0));
             journal.RaidToken = _store.Session.Token;
             journal.Stage = ShipmentStage.Prepared;
-            _store.SetPending(journal);
-            _store.SaveAllAndFlush();
+            // The write-ahead record MUST be durable before any charge. A failed save here
+            // means a crash after payment could not be recovered: abort without charging.
+            if (!_store.SetPending(journal))
+            {
+                journal.Stage = ShipmentStage.Aborted;
+                journal.Message = "存档写入失败";
+                return Fail("存档暂不可用，发货已中止，未扣费、未移动物品。请检查游戏存档空间后重试。");
+            }
             _log("Shipment prepared " + shipmentId + " station=" + stationId + " items=" + facts.Count
                  + " value=" + quote.GoodsValue + " fee=" + quote.Fee + " escort=" + escortRules.Name
                  + " loss=" + quote.FinalLossRate.ToString("0.###"));
@@ -215,8 +225,17 @@ namespace CaiYaStation
                 return Fail("支付失败，未扣费，也未移动物品。");
             }
             journal.Stage = ShipmentStage.Paid;
-            _store.SetPending(journal);
-            _store.SaveAllAndFlush();
+            // Same durability gate after payment: if the Paid record cannot be persisted, a
+            // crash would leave money charged with no journal to recover from.
+            if (!_store.SetPending(journal))
+            {
+                journal.Stage = ShipmentStage.Interrupted;
+                journal.Message = "已扣费但 Paid 日志落盘失败，等待重启恢复";
+                _store.SetPending(journal);
+                _store.SaveAllAndFlush();
+                _log("Shipment paid-but-not-durable " + shipmentId + "; recovery will finish it");
+                return Fail("发货已扣费，但存档写入失败。物品未移动；重新加载后系统会自动把幸存物品送到自提点。");
+            }
             // Mark used only after the Paid journal is on disk: a crash before this point recovers
             // the paid shipment, while a crash after it must not reopen the station.
             _store.Session.MarkUsed(stationId);
@@ -261,8 +280,7 @@ namespace CaiYaStation
                 _store.ClearPending();
                 _store.SaveAllAndFlush();
                 _log("Shipment completed " + shipmentId + " delivered=" + receipt.DeliveredStacks
-                     + " lost=" + receipt.LostStacks);
-                return new ShipmentResult
+                     + " lost=" + receipt.LostStacks);                return new ShipmentResult
                 {
                     Success = true,
                     StationUsed = true,
@@ -317,10 +335,12 @@ namespace CaiYaStation
                 foreach (var line in journal.Items.Where(line => !line.Lost && !line.Pushed))
                 {
                     // Unity instance ids are not stable across process restarts. Fall back to a
-                    // one-to-one fingerprint (type / stack / unit value) for a paid shipment
-                    // that was interrupted before its push completed.
-                    var live = FindLive(inventory, line.InstanceId);
-                    if (live == null) live = FindLiveByFingerprint(inventory, line, claimed);
+                    // one-to-one fingerprint (type / stack / unit value), then to a looser match so
+                    // a stack the player split or merged still counts as delivered.
+                    var live = FindLive(inventory, line.InstanceId)
+                               ?? FindLiveByFingerprint(inventory, line, claimed)
+                               ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, true)
+                               ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, false);
                     if (live == null)
                     {
                         _log("Recovery could not locate item id=" + line.InstanceId
@@ -331,16 +351,50 @@ namespace CaiYaStation
                     line.Pushed = true;
                     _log("Recovered delivery " + line.Name + " x" + line.StackCount);
                 }
-                var unresolved = journal.Items.Count(line => !line.Lost && !line.Pushed);
-                if (unresolved > 0)
+                // Planned-loss items: payment already happened, but the crash may have hit
+                // between payment and RemoveAndDestroy. If such a stack is still in the
+                // backpack, finish the plan and destroy it; the receipt already counts it lost.
+                foreach (var line in journal.Items.Where(line => line.Lost && !line.Pushed))
                 {
-                    journal.Stage = ShipmentStage.Interrupted;
-                    journal.Message = "恢复时仍有 " + unresolved + " 件未在背包中找到";
-                    _store.SetPending(journal);
-                    _store.SaveAllAndFlush();
-                    _log("Shipment recovery incomplete " + journal.ShipmentId + " unresolved=" + unresolved);
-                    return "菜鸭驿站：上次发货仍有 " + unresolved
-                           + " 件未能确认送达，已保留发货记录。请查看 F8 日志。";
+                    var live = FindLive(inventory, line.InstanceId)
+                               ?? FindLiveByFingerprint(inventory, line, claimed)
+                               ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, true)
+                               ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, false);
+                    if (live == null)
+                    {
+                        // Not in the backpack: either already destroyed before the crash, or
+                        // consumed elsewhere. Nothing to do; the receipt stands.
+                        continue;
+                    }
+                    RemoveAndDestroy(inventory, live);
+                    _log("Recovered planned-loss item destroyed " + line.Name + " x" + line.StackCount);
+                }
+                var unresolvedLines = journal.Items.Where(line => !line.Lost && !line.Pushed).ToList();
+                var expired = false;
+                if (unresolvedLines.Count > 0)
+                {
+                    if (!IsRecoveryExpired(journal))
+                    {
+                        journal.Stage = ShipmentStage.Interrupted;
+                        journal.Message = "恢复时仍有 " + unresolvedLines.Count + " 件未在背包中找到";
+                        _store.SetPending(journal);
+                        _store.SaveAllAndFlush();
+                        _log("Shipment recovery incomplete " + journal.ShipmentId + " unresolved=" + unresolvedLines.Count);
+                        return "菜鸭驿站：上次发货仍有 " + unresolvedLines.Count
+                               + " 件未能确认送达，已保留发货记录，"
+                               + RecoveryExpiryDays + " 天后按丢失结算。请查看 F8 日志。";
+                    }
+                    // A paid shipment the player can no longer satisfy must not nag forever and
+                    // must not keep the station locked: settle the remainder as lost.
+                    foreach (var line in unresolvedLines)
+                    {
+                        line.Lost = true;
+                        _log("Shipment recovery expired item id=" + line.InstanceId + " name=" + line.Name
+                             + " x" + line.StackCount);
+                    }
+                    expired = true;
+                    _log("Shipment recovery expired " + journal.ShipmentId + " after "
+                         + RecoveryExpiryDays + " days, settling " + unresolvedLines.Count + " as lost");
                 }
                 var station = _store.Session.Find(journal.StationId);
                 if (station != null && string.Equals(journal.RaidToken, _store.Session.Token, StringComparison.Ordinal))
@@ -356,6 +410,10 @@ namespace CaiYaStation
                 _store.SaveAllAndFlush();
                 _log("Recovered shipment " + journal.ShipmentId + " delivered=" + receipt.DeliveredStacks
                      + " lost=" + receipt.LostStacks);
+                if (expired)
+                    return "菜鸭驿站：上次发货超过 " + RecoveryExpiryDays + " 天未能确认，已按丢失结算。"
+                           + "送达 " + receipt.DeliveredStacks + " 件、丢失 " + receipt.LostStacks
+                           + " 件，请到马蜂自提点领取。";
                 return "菜鸭驿站：上次发货已恢复，送达 " + receipt.DeliveredStacks
                        + " 件、丢失 " + receipt.LostStacks + " 件。请到马蜂自提点领取。";
             }
@@ -403,6 +461,43 @@ namespace CaiYaStation
                 return item;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Second chance for a recovery match. The player may have split or merged the stack after
+        /// the crash, which moves the stack count; unit value stays exact on the first pass because
+        /// that is what the receipt was priced from. Each live item is still claimed only once.
+        /// </summary>
+        private static Item? FindLiveByRelaxedFingerprint(Inventory inventory, JournalItem line,
+            HashSet<int> claimed, bool exactValue)
+        {
+            Item? fallback = null;
+            foreach (var item in inventory.Content)
+            {
+                if (item == null) continue;
+                var instanceId = item.GetInstanceID();
+                if (claimed.Contains(instanceId)) continue;
+                if (item.TypeID != line.TypeId) continue;
+                if (exactValue && item.Value != line.UnitValue) continue;
+                if (item.StackCount == line.StackCount)
+                {
+                    claimed.Add(instanceId);
+                    return item;
+                }
+                if (fallback == null) fallback = item;
+            }
+            if (fallback == null) return null;
+            claimed.Add(fallback.GetInstanceID());
+            return fallback;
+        }
+
+        /// <summary>How long a paid shipment may keep retrying before its remainder is settled as lost.</summary>
+        private const int RecoveryExpiryDays = 7;
+
+        private static bool IsRecoveryExpired(ShipmentJournal journal)
+        {
+            return DateTimeOffset.TryParse(journal.CreatedUtc, out var created)
+                   && DateTimeOffset.UtcNow > created.ToUniversalTime().AddDays(RecoveryExpiryDays);
         }
 
         private static void RemoveAndDestroy(Inventory inventory, Item item)

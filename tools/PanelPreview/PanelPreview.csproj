@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+    <DuckovPath Condition="'$(DuckovPath)' == ''">E:\Steam\steamapps\common\Escape from Duckov</DuckovPath>
+    <GameManagedPath>$(DuckovPath)\Duckov_Data\Managed</GameManagedPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\..\src\CaiYaStation\PanelLayout.cs" Link="PanelLayout.cs" />
+    <Compile Include="..\..\src\CaiYaStation\PanelPainter.cs" Link="PanelPainter.cs" />
+    <Compile Include="..\..\src\CaiYaStation\PanelRenderer.cs" Link="PanelRenderer.cs" />
+    <Compile Include="..\..\src\CaiYaStation\ReceiptLayout.cs" Link="ReceiptLayout.cs" />
+    <Compile Include="..\..\src\CaiYaStation\ShipmentView.cs" Link="ShipmentView.cs" />
+    <Compile Include="..\..\src\CaiYaStation.Domain\Pricing.cs" Link="Domain\Pricing.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManagedPath)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(GameManagedPath)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(GameManagedPath)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

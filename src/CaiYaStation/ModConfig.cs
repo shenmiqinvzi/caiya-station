@@ -145,7 +145,7 @@ namespace CaiYaStation
                 log("Ui.PanelWidth out of range, reset to 920");
                 Ui.PanelWidth = 920;
             }
-            if (Ui.PanelHeight < 600 || Ui.PanelHeight > 1000)
+            if (Ui.PanelHeight < 660 || Ui.PanelHeight > 1000)
             {
                 log("Ui.PanelHeight out of range, reset to 700");
                 Ui.PanelHeight = 700;

@@ -23,6 +23,9 @@ namespace CaiYaStation.Domain
         public bool CanDrop { get; set; } = true;
         public bool HasContainerInventory { get; set; }
         public IReadOnlyList<string> Tags { get; set; } = Array.Empty<string>();
+        /// <summary>True when the tag list could not be read completely. Protection rules must
+        /// fail closed for such stacks: they may hide quest/keys/cash tags.</summary>
+        public bool ProtectionCheckFailed { get; set; }
 
         public long GoodsValue => Math.Max(1, UnitValue) * (long)Math.Max(0, StackCount);
     }

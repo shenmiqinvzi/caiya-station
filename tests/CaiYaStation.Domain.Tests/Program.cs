@@ -103,8 +103,8 @@ Add("keys are protected", () => Assert.Equal("任务/钥匙/唯一物品不可�
 Add("special keys are protected", () => Assert.Equal("任务/钥匙/唯一物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, tags: "SpecialKey"), protection)));
 Add("currency tag is protected", () => Assert.Equal("现金/货币类物品不可寄送", ItemEligibility.BlockReason(Item(451, 1, tags: "Cash"), protection)));
 Add("currency type id is protected", () => Assert.Equal("现金/货币类物品不可寄送", ItemEligibility.BlockReason(Item(451, 1), protection)));
-Add("container inventory is protected", () => Assert.Equal("容器类物品第一版不寄送", ItemEligibility.BlockReason(Item(10, 100, container: true), protection)));
-Add("container tag is protected", () => Assert.Equal("容器类物品第一版不寄送", ItemEligibility.BlockReason(Item(10, 100, tags: "Continer"), protection)));
+Add("container inventory is protected", () => Assert.Equal("容器类物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, container: true), protection)));
+Add("container tag is protected", () => Assert.Equal("容器类物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, tags: "Continer"), protection)));
 Add("equipped items are protected", () => Assert.Equal("装备中的物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, equipped: true), protection)));
 Add("undroppable items are protected", () => Assert.Equal("该物品不可丢弃，不能寄送", ItemEligibility.BlockReason(Item(10, 100, canDrop: false), protection)));
 Add("quest name prefix is protected", () => Assert.Equal("任务/钥匙/唯一物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, name: "Item_Quest_Watch"), protection)));
@@ -340,6 +340,41 @@ Add("loss notice fields survive JSON round-trip", () =>
     var restored = JsonConvert.DeserializeObject<Receipt>(json)!;
     Assert.Equal("机械蜘蛛、拾荒者", restored.LossCulprits);
     Assert.Equal("(╥﹏╥)", restored.LossKaomoji);
+});
+Add("receipts wait for the bunker before counting as read", () =>
+{
+    var receipt = new Receipt { Viewed = false };
+    Assert.True(receipt.AwaitingView);
+    receipt.Viewed = true;
+    Assert.False(receipt.AwaitingView);
+    // Written before receipts were deferred: no flag, must not replay on upgrade.
+    Assert.False(new Receipt().AwaitingView);
+    var json = JsonConvert.SerializeObject(new Receipt { Viewed = false });
+    Assert.True(JsonConvert.DeserializeObject<Receipt>(json)!.AwaitingView);
+});
+Add("flavour never claims a loss that did not happen", () =>
+{
+    for (var seed = 0; seed < 60; seed++)
+    {
+        var clean = Receipts.RandomFlavor(new Random(seed), false);
+        Assert.False(clean.Contains("丢") || clean.Contains("摔散") || clean.Contains("撬开"),
+            "delivered flavour mentions a loss: " + clean);
+    }
+    for (var seed = 0; seed < 60; seed++)
+    {
+        var lost = Receipts.RandomFlavor(new Random(seed), true);
+        Assert.False(lost.Contains("一件没少") || lost.Contains("整批货都到了"),
+            "loss flavour claims everything arrived: " + lost);
+    }
+});
+Add("fail-closed: unreadable tags block shipping", () =>
+{
+    // A stack whose tags could not be read must be refused even if the visible
+    // name/type look shippable: the tag list may hide quest/key/cash tags.
+    var item = Item(999, 100);
+    Assert.Equal(null, ItemEligibility.BlockReason(item, new ProtectionRules()));
+    item.ProtectionCheckFailed = true;
+    Assert.True(ItemEligibility.BlockReason(item, new ProtectionRules()) != null);
 });
 Add("receipt JSON round-trips with computed fields", () =>
 {
