@@ -43,6 +43,7 @@ namespace CaiYaStation
         private int _lastReceiptCountNotified = -1;
         private bool _extractionConstraintLogged;
         private bool _placementFailureNotified;
+        private string _repairKey = "";
         private float _nextTick;
         private float _nextPlacementRetry;
         private bool _disposed;
@@ -294,6 +295,14 @@ namespace CaiYaStation
                 }
             }
             var wantedStations = Math.Max(0, site.StationsPerRaid);
+            // Saves written before the placement fix hold stations standing in a river or behind
+            // a railing. Re-check them once per scene load and move the broken ones instead of
+            // leaving them unreachable for the rest of the raid.
+            var repaired = RepairUnreachableStations(site, scene, existing);
+            if (repaired)
+            {
+                _store.SaveStations();
+            }
             if (existing.Count < wantedStations && Time.unscaledTime >= _nextPlacementRetry)
             {
                 _nextPlacementRetry = Time.unscaledTime + 10f;
@@ -403,20 +412,33 @@ namespace CaiYaStation
         }
 
         private bool TryPlaceStation(StationRecord station, Scene scene, List<StationRecord> alreadyPlaced,
-            List<Vector3> teleporters, List<Vector3> extractions, out StationRecord snapped)
+            List<Vector3> teleporters, List<Vector3> extractions, out StationRecord snapped,
+            bool walkFromActor = false, string? ignoreId = null)
         {
             snapped = station;
             var actor = Actor;
             var anchor = new Vector3((float)station.X, (float)station.Y, (float)station.Z);
             if (NavMesh.SamplePosition(anchor, out var nav, 10, NavMesh.AllAreas)) anchor = nav.position;
+            // Placement walks the route from the designed anchor; a repair has to prove the
+            // route from where the player actually stands.
+            var pathOrigin = walkFromActor && actor != null ? actor.transform.position : anchor;
 
             var rings = _config.Placement.SearchRings.Count > 0
                 ? _config.Placement.SearchRings
-                : new List<double> { 8, 12, 16, 22 };
+                : new List<double> { 8, 12, 16, 22, 30, 40 };
             var angles = Math.Max(4, _config.Placement.SearchAngles);
             var passes = new[] { 0, 1, 2 };
+            var maxSlope = (float)_config.Placement.MaximumSlopeDegrees;
+            var yaw = (float)station.Yaw;
             foreach (var pass in passes)
             {
+                // The first acceptable point used to win outright, so an 8m candidate that grazed
+                // a river bank beat a clean 12m one. Score every survivor and keep the best.
+                var bestScore = double.MaxValue;
+                Vector3 bestPoint = default;
+                var bestPath = float.MaxValue;
+                var bestRing = 0.0;
+                var rejects = new Dictionary<string, int>(StringComparer.Ordinal);
                 foreach (var ring in rings)
                 {
                     for (var index = 0; index < angles; index++)
@@ -424,28 +446,63 @@ namespace CaiYaStation
                         var angle = station.Yaw + index * (360.0 / angles);
                         var offset = Quaternion.Euler(0, (float)angle, 0) * Vector3.forward * (float)ring;
                         var candidate = anchor + offset;
-                        if (!SafeGround.Find(anchor, candidate, actor, (float)_config.Placement.MaximumSlopeDegrees, out var point))
-                            continue;
-                        if (!ClearOfStations(point, station.MapId, station.SceneName, alreadyPlaced)) continue;
-                        if (!ClearOfTeleporters(point, teleporters)) continue;
-                        if (!ClearOfExtraction(point, pass, extractions)) continue;
-                        var rotation = SafeGround.GroundRotation(point, (float)station.Yaw, actor);
-                        snapped = new StationRecord
+                        if (!SafeGround.Find(pathOrigin, candidate, actor, maxSlope, yaw, out var point,
+                                out var pathLength, out var reason))
                         {
-                            Id = station.Id,
-                            Name = station.Name,
-                            MapId = station.MapId,
-                            SceneName = scene.name,
-                            X = point.x,
-                            Y = point.y,
-                            Z = point.z,
-                            Yaw = rotation.eulerAngles.y,
-                            Used = false
-                        };
-                        _log("Station placed id=" + station.Id + " at " + point.x.ToString("0.0") + ","
-                             + point.y.ToString("0.0") + "," + point.z.ToString("0.0") + " pass=" + pass);
-                        return true;
+                            rejects[reason] = rejects.TryGetValue(reason, out var count) ? count + 1 : 1;
+                            continue;
+                        }
+                        if (!ClearOfStations(point, station.MapId, station.SceneName, alreadyPlaced, ignoreId))
+                        {
+                            rejects["too-close-station"] = rejects.TryGetValue("too-close-station", out var c1) ? c1 + 1 : 1;
+                            continue;
+                        }
+                        if (!ClearOfTeleporters(point, teleporters))
+                        {
+                            rejects["too-close-teleporter"] =
+                                rejects.TryGetValue("too-close-teleporter", out var c2) ? c2 + 1 : 1;
+                            continue;
+                        }
+                        if (!ClearOfExtraction(point, pass, extractions))
+                        {
+                            rejects["extraction-band"] =
+                                rejects.TryGetValue("extraction-band", out var c3) ? c3 + 1 : 1;
+                            continue;
+                        }
+                        var score = PlacementPolicy.Score(pathLength, ring);
+                        if (score >= bestScore) continue;
+                        bestScore = score;
+                        bestPoint = point;
+                        bestPath = pathLength;
+                        bestRing = ring;
                     }
+                }
+                if (bestScore < double.MaxValue)
+                {
+                    var rotation = SafeGround.GroundRotation(bestPoint, yaw, actor);
+                    snapped = new StationRecord
+                    {
+                        Id = station.Id,
+                        Name = station.Name,
+                        MapId = station.MapId,
+                        SceneName = scene.name,
+                        X = bestPoint.x,
+                        Y = bestPoint.y,
+                        Z = bestPoint.z,
+                        Yaw = rotation.eulerAngles.y,
+                        Used = false
+                    };
+                    _log("Station placed id=" + station.Id + " at " + bestPoint.x.ToString("0.0") + ","
+                         + bestPoint.y.ToString("0.0") + "," + bestPoint.z.ToString("0.0")
+                         + " pass=" + pass + " ring=" + bestRing.ToString("0") + "m"
+                         + " path=" + bestPath.ToString("0") + "m");
+                    return true;
+                }
+                if (rejects.Count > 0)
+                {
+                    var summary = string.Join(",", rejects.OrderByDescending(pair => pair.Value)
+                        .Take(3).Select(pair => pair.Key + "=" + pair.Value));
+                    _log("Station pass " + pass + " rejected every point for id=" + station.Id + ": " + summary);
                 }
                 if (pass == 0)
                     _log("No station point satisfied the 40-80m extraction band for id=" + station.Id + "; relaxing");
@@ -453,16 +510,101 @@ namespace CaiYaStation
             return false;
         }
 
-        private bool ClearOfStations(Vector3 point, string mapId, string sceneName, List<StationRecord> placed)
+        private bool RepairUnreachableStations(StationMap site, Scene scene, List<StationRecord> existing)
+        {
+            var actor = Actor;
+            if (actor == null) return false;
+            // A scene that has just streamed in has no baked navmesh yet, and every station would
+            // look unreachable. Waiting for the ground under the player to answer is the cheapest
+            // proof that the navmesh is live, and the gate below stays open until it does.
+            if (!NavMesh.SamplePosition(actor.transform.position, out _, 2f, NavMesh.AllAreas)) return false;
+            var key = _store.Session.Token + "|" + site.MapId + "|" + scene.name;
+            if (string.Equals(_repairKey, key, StringComparison.Ordinal)) return false;
+            _repairKey = key;
+            var maxSlope = (float)_config.Placement.MaximumSlopeDegrees;
+            var teleporters = CollectTeleporterPositions();
+            var extractions = CollectExtractionPositions();
+            var changed = false;
+            foreach (var station in existing)
+            {
+                if (!string.Equals(station.SceneName, scene.name, StringComparison.Ordinal)) continue;
+                var position = new Vector3((float)station.X, (float)station.Y, (float)station.Z);
+                if (SafeGround.IsStandable(position, (float)station.Yaw, actor, maxSlope, out var reason)) continue;
+                // Something standing on the pad right now (an enemy, a dropped crate) is not a bad
+                // spot; moving the booth for that would shuffle it again on the next scene load.
+                if (string.Equals(reason, "occupied", StringComparison.Ordinal)) continue;
+                // Re-anchor from the designed anchor, not from the broken point, so the search
+                // starts where the author intended instead of around the river bed.
+                var anchor = site.Candidates.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, station.Id, StringComparison.Ordinal));
+                var probe = anchor == null
+                    ? new StationRecord
+                    {
+                        Id = station.Id, Name = station.Name, MapId = station.MapId, SceneName = scene.name,
+                        X = station.X, Y = station.Y, Z = station.Z, Yaw = station.Yaw
+                    }
+                    : new StationRecord
+                    {
+                        Id = anchor.Id, Name = anchor.Name, MapId = site.MapId, SceneName = scene.name,
+                        X = anchor.X, Y = anchor.Y, Z = anchor.Z, Yaw = anchor.Yaw
+                    };
+                var others = existing.Where(other => !ReferenceEquals(other, station)).ToList();
+                // Preferred: a point the player can actually walk to right now. Fallback: the same
+                // geometric checks anchored at the designed point, for when the player stands on a
+                // navmesh island the candidate cannot be reached from (the route check would then
+                // reject every candidate and leave the broken station in place forever).
+                if (!TryPlaceStation(probe, scene, others, teleporters, extractions, out var snapped,
+                        walkFromActor: true, ignoreId: station.Id)
+                    && !TryPlaceStation(probe, scene, others, teleporters, extractions, out snapped,
+                        walkFromActor: false, ignoreId: station.Id))
+                {
+                    _log("Station unreachable id=" + station.Id + " (" + reason + "); no replacement found");
+                    continue;
+                }
+                _log("Station relocated id=" + station.Id + " (" + reason + ") from "
+                     + station.X.ToString("0.0") + "," + station.Y.ToString("0.0") + "," + station.Z.ToString("0.0")
+                     + " to " + snapped.X.ToString("0.0") + "," + snapped.Y.ToString("0.0") + ","
+                     + snapped.Z.ToString("0.0"));
+                station.X = snapped.X;
+                station.Y = snapped.Y;
+                station.Z = snapped.Z;
+                station.Yaw = snapped.Yaw;
+                changed = true;
+                // The visual may already exist at the old spot; drop it so the creation loop in
+                // this same sync rebuilds it at the new point instead of leaving a ghost behind.
+                if (_stations.TryGetValue(station.Id, out var oldRoot))
+                {
+                    if (oldRoot != null) UnityEngine.Object.Destroy(oldRoot);
+                    _stations.Remove(station.Id);
+                }
+                if (_markers.TryGetValue(station.Id, out var oldMarker))
+                {
+                    if (oldMarker != null) UnityEngine.Object.Destroy(oldMarker);
+                    _markers.Remove(station.Id);
+                }
+            }
+            if (changed)
+            {
+                Notify("有驿站原先落在到不了的位置，已挪到附近可走的空地。", false,
+                    "菜鸭驿站 · 位置已修正", NoticeKind.Info,
+                    "地图标记会跟着更新", "修正");
+            }
+            return changed;
+        }
+
+        private bool ClearOfStations(Vector3 point, string mapId, string sceneName, List<StationRecord> placed,
+            string? ignoreId = null)
         {
             foreach (var other in _store.Session.ForMap(mapId))
             {
                 if (other.SceneName != sceneName) continue;
+                if (ignoreId != null && string.Equals(other.Id, ignoreId, StringComparison.Ordinal)) continue;
                 if (Vector3.Distance(point, new Vector3((float)other.X, (float)other.Y, (float)other.Z))
                     < _config.Placement.MinimumSeparation) return false;
             }
             foreach (var other in placed)
             {
+                if (ignoreId != null && string.Equals(other.Id, ignoreId, StringComparison.Ordinal)) continue;
                 if (Vector3.Distance(point, new Vector3((float)other.X, (float)other.Y, (float)other.Z))
                     < _config.Placement.MinimumSeparation) return false;
             }
@@ -495,7 +637,6 @@ namespace CaiYaStation
 
         private bool ClearOfExtraction(Vector3 point, int pass, List<Vector3> extractions)
         {
-            if (pass >= 2) return true;
             if (extractions.Count == 0)
             {
                 if (!_extractionConstraintLogged)
@@ -516,9 +657,9 @@ namespace CaiYaStation
                 var distance = Vector3.Distance(area, point);
                 if (distance < nearest) nearest = distance;
             }
-            if (nearest < minimum) return false;
-            if (pass == 0 && nearest > maximum) return false;
-            return true;
+            // Pass 2 relaxes the band but must still refuse a point sitting on an extraction;
+            // the old `pass >= 2 return true` dropped that check too.
+            return PlacementPolicy.ExtractionAllows(nearest, pass, minimum, maximum);
         }
 
         private List<Vector3> CollectExtractionPositions()
@@ -646,6 +787,29 @@ namespace CaiYaStation
 
         internal StationRecord? FindStation(string stationId) => _store.Session.Find(stationId);
 
+        /// <summary>
+        /// Reachability from the actor to a station, not just proximity. Straight-line distance
+        /// alone used to accept a station on the far side of a railing or a river: the label
+        /// said "3m" while the interaction prompt never appeared. A walkable path plus a clear
+        /// line of sight is what "can interact" actually means.
+        /// </summary>
+        private bool WithinReach(StationRecord station, CharacterMainControl actor, float radius)
+        {
+            var target = new Vector3((float)station.X, (float)station.Y, (float)station.Z);
+            var from = actor.transform.position;
+            if (Vector3.Distance(from, target) > radius * 2f) return false;
+            if (!SafeGround.LineOfSight(from + Vector3.up * 1.4f, target + Vector3.up * 1.0f)) return false;
+            if (Vector3.Distance(from, target) <= radius) return true;
+            // Standing further away is only fine when the walk itself is short: a station across
+            // a fence can be three metres away and a hundred metres of walking away.
+            var path = new NavMeshPath();
+            if (!NavMesh.CalculatePath(from, target, NavMesh.AllAreas, path)
+                || path.status != NavMeshPathStatus.PathComplete)
+                return false;
+            return PlacementPolicy.PathIsReasonable(SafeGround.PathLengthOf(path), Vector3.Distance(from, target),
+                PlacementPolicy.MaximumPathDetour, radius * 2.0);
+        }
+
         internal bool CanOpen(string stationId)
         {
             if (!Config.Enabled) return false;
@@ -656,8 +820,7 @@ namespace CaiYaStation
                 || !string.Equals(station.SceneName, _sceneName, StringComparison.Ordinal)) return false;
             var actor = Actor;
             if (actor == null) return false;
-            if (Vector3.Distance(actor.transform.position,
-                    new Vector3((float)station.X, (float)station.Y, (float)station.Z)) > 4.5f) return false;
+            if (!WithinReach(station, actor, 4.5f)) return false;
             return !NearNativeTravel(actor.transform.position, 3.5f);
         }
 
@@ -689,8 +852,7 @@ namespace CaiYaStation
             }
             var actor = Actor;
             if (actor == null) return;
-            if (Vector3.Distance(actor.transform.position,
-                    new Vector3((float)station.X, (float)station.Y, (float)station.Z)) > 5f)
+            if (!WithinReach(station, actor, 5f))
             {
                 Notify("请先靠近菜鸭驿站。", false, "菜鸭驿站 · 距离太远", NoticeKind.Info,
                     "走近柜台后再按交互键", "提示");
@@ -1050,6 +1212,7 @@ namespace CaiYaStation
             _lastReceiptCountNotified = -1;
             _nextPlacementRetry = 0;
             _placementFailureNotified = false;
+            _repairKey = "";
             ClearNotices();
             // Switching save files must not spend the old save's unread receipt: drop the sheet
             // without acknowledging it, then close whatever else was open.

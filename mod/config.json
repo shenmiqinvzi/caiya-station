@@ -52,7 +52,7 @@
     "MaximumExtractionDistance": 80.0,
     "MinimumTeleporterDistance": 15.0,
     "MaximumSlopeDegrees": 35.0,
-    "SearchRings": [ 8.0, 12.0, 16.0, 22.0 ],
+    "SearchRings": [ 8.0, 12.0, 16.0, 22.0, 30.0, 40.0 ],
     "SearchAngles": 16
   },
   "Ui": {

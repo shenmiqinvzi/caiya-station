@@ -483,6 +483,68 @@ Add("station layout keeps scene names used by the game", () =>
     Assert.True(layoutProbe.Sites.Any(site => site.SceneName == "Level_Farm_01"));
 });
 
+// ------------------------------------------------------- placement policy
+// These lock the checks that stop a kiosk from standing in a river or behind a
+// railing: ground must agree with the navmesh, the pad must be flat and dry, and
+// the walk to it must be one a player would actually make.
+Add("placement rejects ground that disagrees with the navmesh", () =>
+{
+    Assert.True(PlacementPolicy.NavMeshAligned(2.0, 2.2));
+    Assert.False(PlacementPolicy.NavMeshAligned(2.0, 2.6));
+    // The old 1.0m tolerance let a kiosk sink a metre below the walkable surface.
+    Assert.False(PlacementPolicy.NavMeshAligned(0.061, -2.1, 1.0));
+});
+
+Add("placement rejects a footprint straddling a step", () =>
+{
+    // Flat ground: every corner lands on the plane the centre follows.
+    Assert.True(PlacementPolicy.CornerOnPlane(1.00, 1.00));
+    Assert.True(PlacementPolicy.CornerOnPlane(1.20, 1.00));
+    Assert.False(PlacementPolicy.CornerOnPlane(1.60, 1.00));
+    // Bridge edge: two corners on the deck, two hanging over the bank.
+    Assert.False(PlacementPolicy.CornerOnPlane(-2.10, 0.06));
+});
+
+Add("placement accepts a gentle slope but not a step", () =>
+{
+    // A 15 degree ramp under a 1.9m half-footprint: the far corner legitimately sits ~0.5m
+    // lower, and a booth on a walkable ramp is fine.
+    var slope = 15.0 * Math.PI / 180.0;
+    var nx = Math.Sin(slope);
+    var ny = Math.Cos(slope);
+    var predicted = PlacementPolicy.PredictedCornerY(0.0, nx, ny, 0.0, 1.9, 0.0);
+    Assert.Near(-0.51, predicted, 0.02);
+    Assert.True(PlacementPolicy.CornerOnPlane(-0.51, predicted));
+    // A kerb 40cm high where the plane expected level ground is rejected.
+    Assert.False(PlacementPolicy.CornerOnPlane(0.40, 0.0));
+});
+
+Add("placement rejects a walk with a huge detour", () =>
+{
+    // Straight across a river: 8m apart, 200m around.
+    Assert.False(PlacementPolicy.PathIsReasonable(200, 8));
+    // A normal stroll with a small detour is fine.
+    Assert.True(PlacementPolicy.PathIsReasonable(11, 8));
+    Assert.False(PlacementPolicy.PathIsReasonable(0, 8));
+    Assert.False(PlacementPolicy.PathIsReasonable(10, -1));
+});
+
+Add("placement never drops the extraction floor", () =>
+{
+    // Pass 2 may ignore the 40-80m band but must still refuse standing on an extraction.
+    Assert.True(PlacementPolicy.ExtractionAllows(50, 0, 40, 80));
+    Assert.False(PlacementPolicy.ExtractionAllows(90, 0, 40, 80));
+    Assert.True(PlacementPolicy.ExtractionAllows(90, 1, 40, 80));
+    Assert.False(PlacementPolicy.ExtractionAllows(12, 2, 40, 80));
+});
+
+Add("placement prefers a short walk over a near ring", () =>
+{
+    // Ring 8 with a 40m walk loses to ring 12 with a 14m walk.
+    Assert.True(PlacementPolicy.Score(14, 12) < PlacementPolicy.Score(40, 8));
+    Assert.True(PlacementPolicy.Score(10, 8) < PlacementPolicy.Score(10, 12));
+});
+
 // ---------------------------------------------------------------- output
 var failed = 0;
 foreach (var (name, run) in cases)

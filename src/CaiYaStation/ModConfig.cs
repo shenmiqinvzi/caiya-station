@@ -14,7 +14,7 @@ namespace CaiYaStation
         public double MaximumExtractionDistance { get; set; } = 80.0;
         public double MinimumTeleporterDistance { get; set; } = 15.0;
         public double MaximumSlopeDegrees { get; set; } = 35.0;
-        public List<double> SearchRings { get; set; } = new List<double> { 8, 12, 16, 22 };
+        public List<double> SearchRings { get; set; } = new List<double> { 8, 12, 16, 22, 30, 40 };
         public int SearchAngles { get; set; } = 16;
     }
 
@@ -138,7 +138,7 @@ namespace CaiYaStation
             if (Placement.MaximumExtractionDistance < Placement.MinimumExtractionDistance)
                 Placement.MaximumExtractionDistance = Placement.MinimumExtractionDistance + 40;
             if (Placement.SearchRings == null || Placement.SearchRings.Count == 0)
-                Placement.SearchRings = new List<double> { 8, 12, 16, 22 };
+                Placement.SearchRings = new List<double> { 8, 12, 16, 22, 30, 40 };
             if (Placement.SearchAngles < 4) Placement.SearchAngles = 16;
             if (Ui.PanelWidth < 820 || Ui.PanelWidth > 1600)
             {

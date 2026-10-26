@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using CaiYaStation.Domain;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -691,38 +692,259 @@ namespace CaiYaStation
         }
     }
 
+    /// <summary>
+    /// Decides whether a kiosk can stand on a point. The first version only asked for "any
+    /// collider under a 2.5m navmesh snap", which let the river surface, railing tops and bridge
+    /// edges count as ground: a kiosk could land two metres below the road, behind a fence, and
+    /// be permanently out of reach. The checks below are the ones that actually matter:
+    /// walkable navmesh, solid ground that agrees with it, dry ground (not under water), a flat
+    /// footprint wide enough for the booth, and a walk that a player would really make.
+    /// </summary>
     internal static class SafeGround
     {
-        internal static bool Find(Vector3 origin, Vector3 candidate, CharacterMainControl? actor, float maxSlope, out Vector3 result)
+        /// <summary>Half extents of the kiosk foundation (3.8 x 2.9 in <see cref="CreateStation"/>).</summary>
+        internal const float FootprintHalfX = 1.9f;
+        internal const float FootprintHalfZ = 1.45f;
+
+        private static int _groundMask;
+        private static int _waterMask;
+        private static bool _masksReady;
+
+        /// <summary>Layers that are never floor: water, triggers, camera tricks.</summary>
+        private static void EnsureMasks()
         {
-            result = default;
-            var navMeshFound = NavMesh.SamplePosition(candidate, out var nav, 2.5f, NavMesh.AllAreas);
-            if (navMeshFound) candidate = nav.position;
-            if (!Physics.Raycast(candidate + Vector3.up * 2f, Vector3.down, out var hit, 5f, ~0, QueryTriggerInteraction.Ignore))
+            if (_masksReady) return;
+            _masksReady = true;
+            var water = LayerMask.NameToLayer("Water");
+            var trigger = LayerMask.NameToLayer("Trigger");
+            var miniGame = LayerMask.NameToLayer("MiniGame");
+            var fullScreen = LayerMask.NameToLayer("FullScreenFx");
+            var ignore = LayerMask.NameToLayer("Ignore Raycast");
+            var excluded = 0;
+            foreach (var layer in new[] { water, trigger, miniGame, fullScreen, ignore })
+                if (layer >= 0) excluded |= 1 << layer;
+            _groundMask = ~excluded;
+            _waterMask = water >= 0 ? 1 << water : 0;
+        }
+
+        internal static int GroundMask
+        {
+            get { EnsureMasks(); return _groundMask; }
+        }
+
+        /// <summary>
+        /// Solid ground under a point, if any. Slope and layer are both checked here so that the
+        /// rest of the placement code cannot forget one of them.
+        /// </summary>
+        private static bool SampleGround(Vector3 point, float maxSlope, out Vector3 ground, out float groundY,
+            out Vector3 normal)
+        {
+            EnsureMasks();
+            ground = default;
+            groundY = 0f;
+            normal = Vector3.up;
+            if (!Physics.Raycast(point + Vector3.up * 2f, Vector3.down, out var hit, 6f, _groundMask,
+                    QueryTriggerInteraction.Ignore))
                 return false;
             if (Vector3.Angle(hit.normal, Vector3.up) > maxSlope) return false;
-            if (navMeshFound && Mathf.Abs(hit.point.y - nav.position.y) > 1.0f) return false;
-            candidate = hit.point + Vector3.up * 0.03f;
-            foreach (var collider in Physics.OverlapCapsule(candidate + Vector3.up * 0.6f, candidate + Vector3.up * 1.8f, 0.55f, ~0, QueryTriggerInteraction.Ignore))
+            ground = hit.point;
+            groundY = hit.point.y;
+            normal = hit.normal;
+            return true;
+        }
+
+        private static bool SampleGround(Vector3 point, float maxSlope, out Vector3 ground, out float groundY)
+            => SampleGround(point, maxSlope, out ground, out groundY, out _);
+
+        /// <summary>
+        /// True when a water surface sits above the candidate: the "ground" there is the river
+        /// bed, so the kiosk would be standing in the water.
+        /// </summary>
+        private static bool UnderWater(Vector3 point)
+        {
+            EnsureMasks();
+            if (_waterMask == 0) return false;
+            if (!Physics.Raycast(point + Vector3.up * 8f, Vector3.down, out var water, 16f, _waterMask,
+                    QueryTriggerInteraction.Ignore))
+                return false;
+            return water.point.y > point.y + 0.05f;
+        }
+
+        /// <summary>
+        /// The booth needs a level pad. Each base corner is compared against the plane the centre
+        /// ground follows, so a gentle slope passes while a kerb, a railing top, a bridge edge or
+        /// a river bank (where a corner drops away) fails.
+        /// </summary>
+        private static bool FootprintFlat(Vector3 center, Vector3 normal, float yaw, float centerY, float maxSlope,
+            out string reason)
+        {
+            reason = "";
+            var rotation = Quaternion.Euler(0f, yaw, 0f);
+            foreach (var x in new[] { -FootprintHalfX, FootprintHalfX })
             {
+                foreach (var z in new[] { -FootprintHalfZ, FootprintHalfZ })
+                {
+                    var offset = rotation * new Vector3(x, 0f, z);
+                    var corner = center + offset;
+                    if (!SampleGround(corner, maxSlope, out var cornerGround, out var cornerY))
+                    {
+                        reason = "corner-over-nothing";
+                        return false;
+                    }
+                    var predicted = PlacementPolicy.PredictedCornerY(centerY, normal.x, normal.y, normal.z,
+                        offset.x, offset.z);
+                    if (!PlacementPolicy.CornerOnPlane(cornerY, predicted))
+                    {
+                        reason = "corner-step-" + Mathf.Abs(cornerY - (float)predicted).ToString("0.00");
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        /// <summary>Nothing may already occupy the volume the booth will fill.</summary>
+        private static bool FootprintClear(Vector3 center, float yaw, CharacterMainControl? actor)
+        {
+            var half = new Vector3(FootprintHalfX - 0.15f, 1.0f, FootprintHalfZ - 0.15f);
+            var boxCenter = center + Vector3.up * 1.15f;
+            foreach (var collider in Physics.OverlapBox(boxCenter, half, Quaternion.Euler(0f, yaw, 0f),
+                         GroundMask, QueryTriggerInteraction.Ignore))
+            {
+                if (collider == null) continue;
                 if (actor != null && collider.transform.IsChildOf(actor.transform)) continue;
                 return false;
             }
-            if (navMeshFound && actor != null)
+            return true;
+        }
+
+        private static float PathLength(NavMeshPath path)
+        {
+            var length = 0f;
+            var corners = path.corners;
+            for (var index = 1; index < corners.Length; index++)
+                length += Vector3.Distance(corners[index - 1], corners[index]);
+            return length;
+        }
+
+        internal static float PathLengthOf(NavMeshPath path) => PathLength(path);
+
+        /// <summary>
+        /// Unobstructed view between two points. The interaction prompt has to sit in front of
+        /// the counter, not behind a railing or across a river channel.
+        /// </summary>
+        internal static bool LineOfSight(Vector3 from, Vector3 to)
+        {
+            EnsureMasks();
+            var delta = to - from;
+            var distance = delta.magnitude;
+            if (distance < 0.01f) return true;
+            return !Physics.Raycast(from, delta / distance, distance, GroundMask, QueryTriggerInteraction.Ignore);
+        }
+
+        internal static bool Find(Vector3 origin, Vector3 candidate, CharacterMainControl? actor, float maxSlope,
+            float yaw, out Vector3 result, out float pathLength, out string reason)
+        {
+            result = default;
+            pathLength = float.MaxValue;
+            reason = "";
+
+            // Walkable navmesh is the hard requirement: without it the player can never stand here.
+            if (!NavMesh.SamplePosition(candidate, out var nav, 1.5f, NavMesh.AllAreas))
+            {
+                reason = "no-navmesh";
+                return false;
+            }
+            candidate = nav.position;
+
+            if (!SampleGround(candidate, maxSlope, out var ground, out var groundY, out var normal))
+            {
+                reason = "no-ground";
+                return false;
+            }
+            if (!PlacementPolicy.NavMeshAligned(groundY, nav.position.y))
+            {
+                reason = "navmesh-gap-" + Mathf.Abs(groundY - nav.position.y).ToString("0.00");
+                return false;
+            }
+            if (UnderWater(ground))
+            {
+                reason = "under-water";
+                return false;
+            }
+            if (!FootprintFlat(ground, normal, yaw, groundY, maxSlope, out reason))
+                return false;
+            if (!FootprintClear(ground, yaw, actor))
+            {
+                reason = "occupied";
+                return false;
+            }
+            var stand = ground + Vector3.up * 0.03f;
+            if (actor != null)
             {
                 var path = new NavMeshPath();
-                if (!NavMesh.CalculatePath(origin, candidate, NavMesh.AllAreas, path) || path.status != NavMeshPathStatus.PathComplete)
+                if (!NavMesh.CalculatePath(origin, stand, NavMesh.AllAreas, path)
+                    || path.status != NavMeshPathStatus.PathComplete)
+                {
+                    reason = "no-path";
                     return false;
+                }
+                pathLength = PathLength(path);
+                if (!PlacementPolicy.PathIsReasonable(pathLength, Vector3.Distance(origin, stand)))
+                {
+                    reason = "detour-" + pathLength.ToString("0") + "m";
+                    return false;
+                }
             }
-            result = candidate;
+            result = stand;
             return true;
+        }
+
+        /// <summary>
+        /// Re-checks an already-placed station. Saves written before the placement fix contain
+        /// stations that sit in a river or behind a railing; without this they would stay
+        /// unreachable for the rest of the raid.
+        /// </summary>
+        internal static bool IsStandable(Vector3 position, float yaw, CharacterMainControl? actor, float maxSlope,
+            out string reason)
+        {
+            reason = "";
+            var stand = position;
+            if (!NavMesh.SamplePosition(position, out var nav, 1.5f, NavMesh.AllAreas))
+            {
+                reason = "no-navmesh";
+                return false;
+            }
+            if (!SampleGround(nav.position, maxSlope, out var ground, out var groundY, out var normal))
+            {
+                reason = "no-ground";
+                return false;
+            }
+            if (!PlacementPolicy.NavMeshAligned(groundY, nav.position.y))
+            {
+                reason = "navmesh-gap-" + Mathf.Abs(groundY - nav.position.y).ToString("0.00");
+                return false;
+            }
+            if (UnderWater(ground))
+            {
+                reason = "under-water";
+                return false;
+            }
+            if (!FootprintFlat(ground, normal, yaw, groundY, maxSlope, out reason))
+                return false;
+            // Deliberately no path check here: the saved station may be checked while the player
+            // stands on the other side of the map, and a long legitimate walk must not be read
+            // as a broken one. Route quality is enforced when the replacement point is chosen.
+            return Vector3.Distance(stand, ground) <= 0.05f;
         }
 
         internal static Quaternion GroundRotation(Vector3 position, float yaw, CharacterMainControl? actor)
         {
+            EnsureMasks();
             var normal = Vector3.up;
             var best = float.PositiveInfinity;
-            foreach (var hit in Physics.RaycastAll(position + Vector3.up * 0.6f, Vector3.down, 2.5f, ~0, QueryTriggerInteraction.Ignore))
+            foreach (var hit in Physics.RaycastAll(position + Vector3.up * 0.6f, Vector3.down, 2.5f, _groundMask,
+                         QueryTriggerInteraction.Ignore))
             {
                 if (actor != null && hit.collider.transform.IsChildOf(actor.transform)) continue;
                 if (hit.distance >= best) continue;
