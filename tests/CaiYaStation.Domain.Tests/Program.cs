@@ -485,14 +485,14 @@ Add("station layout keeps scene names used by the game", () =>
 
 // ------------------------------------------------------- placement policy
 // These lock the checks that stop a kiosk from standing in a river or behind a
-// railing: ground must agree with the navmesh, the pad must be flat and dry, and
-// the walk to it must be one a player would actually make.
-Add("placement rejects ground that disagrees with the navmesh", () =>
+// railing: ground must agree with the walkable graph, the pad must be flat and dry,
+// and the walk to it must be one a player would actually make.
+Add("placement rejects ground that disagrees with the walkable graph", () =>
 {
-    Assert.True(PlacementPolicy.NavMeshAligned(2.0, 2.2));
-    Assert.False(PlacementPolicy.NavMeshAligned(2.0, 2.6));
+    Assert.True(PlacementPolicy.GraphAligned(2.0, 2.2));
+    Assert.False(PlacementPolicy.GraphAligned(2.0, 2.6));
     // The old 1.0m tolerance let a kiosk sink a metre below the walkable surface.
-    Assert.False(PlacementPolicy.NavMeshAligned(0.061, -2.1, 1.0));
+    Assert.False(PlacementPolicy.GraphAligned(0.061, -2.1, 1.0));
 });
 
 Add("placement rejects a footprint straddling a step", () =>

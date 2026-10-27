@@ -64,6 +64,19 @@
       <HintPath>$(GameManagedPath)\Eflatun.SceneReference.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- The game pathfinds with the A* Pathfinding Project; there is no baked Unity navmesh. -->
+    <Reference Include="AstarPathfindingProject">
+      <HintPath>$(GameManagedPath)\AstarPathfindingProject.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PackageTools">
+      <HintPath>$(GameManagedPath)\PackageTools.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Drawing">
+      <HintPath>$(GameManagedPath)\Drawing.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="CheckGameReferences" BeforeTargets="ResolveReferences">

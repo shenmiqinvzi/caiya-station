@@ -7,14 +7,18 @@ namespace CaiYaStation.Domain
     /// "can a kiosk stand here and can a player walk to it" lives here so it can be exercised
     /// without a running game.
     ///
-    /// Why this exists: the first version accepted any collider under a 2.5m navmesh snap, so
+    /// Why this exists: the first version accepted any collider under a 2.5m pathfinder snap, so
     /// the water plane, railing tops and bridge edges all counted as ground. A kiosk could then
     /// land in a river, two metres below the road, and never be reachable.
     /// </summary>
     public static class PlacementPolicy
     {
-        /// <summary>Metres the navmesh may sit away from the solid ground under a candidate.</summary>
-        public const double MaximumNavMeshGap = 0.5;
+        /// <summary>
+        /// Metres the walkable graph may sit away from the solid ground under a candidate.
+        /// The game pathfinds with the A* Pathfinding Project, so the graph node height is the
+        /// authority on where a character can actually stand.
+        /// </summary>
+        public const double MaximumGraphGap = 0.5;
 
         /// <summary>Metres the four base corners of a kiosk may differ in height.</summary>
         public const double MaximumFootprintStep = 0.35;
@@ -26,11 +30,11 @@ namespace CaiYaStation.Domain
         public const double PathDetourSlack = 6.0;
 
         /// <summary>
-        /// Ground and navmesh have to agree; otherwise the "solid" surface is a decoration or a
-        /// water plane rather than the floor the pathfinder walks on.
+        /// Ground and the walkable graph have to agree; otherwise the "solid" surface is a
+        /// decoration or a water plane rather than the floor the pathfinder walks on.
         /// </summary>
-        public static bool NavMeshAligned(double groundY, double navMeshY, double tolerance = MaximumNavMeshGap)
-            => Math.Abs(groundY - navMeshY) <= tolerance;
+        public static bool GraphAligned(double groundY, double nodeY, double tolerance = MaximumGraphGap)
+            => Math.Abs(groundY - nodeY) <= tolerance;
 
         /// <summary>
         /// All four base corners of the kiosk have to stand at the same height, which is what

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Reflection;
 using CaiYaStation.Domain;
 using UnityEngine;
-using UnityEngine.AI;
 
 namespace CaiYaStation
 {
@@ -697,8 +696,9 @@ namespace CaiYaStation
     /// collider under a 2.5m navmesh snap", which let the river surface, railing tops and bridge
     /// edges count as ground: a kiosk could land two metres below the road, behind a fence, and
     /// be permanently out of reach. The checks below are the ones that actually matter:
-    /// walkable navmesh, solid ground that agrees with it, dry ground (not under water), a flat
-    /// footprint wide enough for the booth, and a walk that a player would really make.
+    /// a node on the game's own pathfinding graph, solid ground that agrees with it, dry ground
+    /// (not under water), a flat footprint wide enough for the booth, and a walk that a player
+    /// would really make.
     /// </summary>
     internal static class SafeGround
     {
@@ -818,17 +818,6 @@ namespace CaiYaStation
             return true;
         }
 
-        private static float PathLength(NavMeshPath path)
-        {
-            var length = 0f;
-            var corners = path.corners;
-            for (var index = 1; index < corners.Length; index++)
-                length += Vector3.Distance(corners[index - 1], corners[index]);
-            return length;
-        }
-
-        internal static float PathLengthOf(NavMeshPath path) => PathLength(path);
-
         /// <summary>
         /// Unobstructed view between two points. The interaction prompt has to sit in front of
         /// the counter, not behind a railing or across a river channel.
@@ -849,22 +838,30 @@ namespace CaiYaStation
             pathLength = float.MaxValue;
             reason = "";
 
-            // Walkable navmesh is the hard requirement: without it the player can never stand here.
-            if (!NavMesh.SamplePosition(candidate, out var nav, 1.5f, NavMesh.AllAreas))
+            // The station has to stand on a node the game itself considers walkable, so the point
+            // that gets built is the snapped node, not the raw candidate. That single change is
+            // what kills the original bug: a candidate on a river surface or a railing top has no
+            // walkable node under it, so snapping pulls the point onto the nearest real floor and
+            // the gap between the two exposes how far off the anchor really was.
+            if (!PathProbe.TrySnap(candidate, out var snapped, out reason)) return false;
+            var snapGap = Vector3.Distance(snapped, candidate);
+            if (snapGap > PathProbe.SnapTolerance)
             {
-                reason = "no-navmesh";
+                reason = "graph-gap-" + snapGap.ToString("0.00");
                 return false;
             }
-            candidate = nav.position;
 
-            if (!SampleGround(candidate, maxSlope, out var ground, out var groundY, out var normal))
+            // Ground is sampled under the node itself. Sampling under the raw candidate would
+            // compare a point metres up a slope against the node and reject honest hillsides; at
+            // the node, a mismatch means the node floats over water or is buried in a wall.
+            if (!SampleGround(snapped, maxSlope, out var ground, out var groundY, out var normal))
             {
                 reason = "no-ground";
                 return false;
             }
-            if (!PlacementPolicy.NavMeshAligned(groundY, nav.position.y))
+            if (!PlacementPolicy.GraphAligned(groundY, snapped.y))
             {
-                reason = "navmesh-gap-" + Mathf.Abs(groundY - nav.position.y).ToString("0.00");
+                reason = "graph-step-" + Mathf.Abs(groundY - snapped.y).ToString("0.00");
                 return false;
             }
             if (UnderWater(ground))
@@ -882,14 +879,7 @@ namespace CaiYaStation
             var stand = ground + Vector3.up * 0.03f;
             if (actor != null)
             {
-                var path = new NavMeshPath();
-                if (!NavMesh.CalculatePath(origin, stand, NavMesh.AllAreas, path)
-                    || path.status != NavMeshPathStatus.PathComplete)
-                {
-                    reason = "no-path";
-                    return false;
-                }
-                pathLength = PathLength(path);
+                if (!PathProbe.TryMeasure(origin, stand, out pathLength, out reason)) return false;
                 if (!PlacementPolicy.PathIsReasonable(pathLength, Vector3.Distance(origin, stand)))
                 {
                     reason = "detour-" + pathLength.ToString("0") + "m";
@@ -909,20 +899,21 @@ namespace CaiYaStation
             out string reason)
         {
             reason = "";
-            var stand = position;
-            if (!NavMesh.SamplePosition(position, out var nav, 1.5f, NavMesh.AllAreas))
+            if (!PathProbe.TrySnap(position, out var snapped, out reason)) return false;
+            var snapGap = Vector3.Distance(snapped, position);
+            if (snapGap > PathProbe.SnapTolerance)
             {
-                reason = "no-navmesh";
+                reason = "graph-gap-" + snapGap.ToString("0.00");
                 return false;
             }
-            if (!SampleGround(nav.position, maxSlope, out var ground, out var groundY, out var normal))
+            if (!SampleGround(position, maxSlope, out var ground, out var groundY, out var normal))
             {
                 reason = "no-ground";
                 return false;
             }
-            if (!PlacementPolicy.NavMeshAligned(groundY, nav.position.y))
+            if (!PlacementPolicy.GraphAligned(groundY, snapped.y))
             {
-                reason = "navmesh-gap-" + Mathf.Abs(groundY - nav.position.y).ToString("0.00");
+                reason = "graph-step-" + Mathf.Abs(groundY - snapped.y).ToString("0.00");
                 return false;
             }
             if (UnderWater(ground))
@@ -930,12 +921,20 @@ namespace CaiYaStation
                 reason = "under-water";
                 return false;
             }
+            // The saved coordinate itself has to sit on that ground. Without this the check would
+            // pass for a kiosk buried two metres under the river bed, because the nearest walkable
+            // node is on the bank above it.
+            if (Mathf.Abs(position.y - groundY) > 0.05f)
+            {
+                reason = "off-ground-" + Mathf.Abs(position.y - groundY).ToString("0.00");
+                return false;
+            }
             if (!FootprintFlat(ground, normal, yaw, groundY, maxSlope, out reason))
                 return false;
             // Deliberately no path check here: the saved station may be checked while the player
             // stands on the other side of the map, and a long legitimate walk must not be read
             // as a broken one. Route quality is enforced when the replacement point is chosen.
-            return Vector3.Distance(stand, ground) <= 0.05f;
+            return true;
         }
 
         internal static Quaternion GroundRotation(Vector3 position, float yaw, CharacterMainControl? actor)

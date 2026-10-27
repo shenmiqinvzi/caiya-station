@@ -5,7 +5,6 @@ using CaiYaStation.Domain;
 using Duckov.MiniMaps;
 using Duckov.Scenes;
 using UnityEngine;
-using UnityEngine.AI;
 using UnityEngine.SceneManagement;
 using Random = System.Random;
 
@@ -44,6 +43,10 @@ namespace CaiYaStation
         private bool _extractionConstraintLogged;
         private bool _placementFailureNotified;
         private string _repairKey = "";
+        private bool _graphWaitLogged;
+        private bool _graphWaitNotified;
+        private float _graphWaitSince;
+        private bool _graphInfoLogged;
         private float _nextTick;
         private float _nextPlacementRetry;
         private bool _disposed;
@@ -262,6 +265,36 @@ namespace CaiYaStation
             var site = _layout.For(mapId, scene.name) ?? _layout.ForMap(mapId);
             if (site == null) return;
 
+            if (!PathProbe.Ready)
+            {
+                // A freshly streamed scene has not been scanned yet. Placing now would reject
+                // every candidate for a reason that fixes itself a second later, so wait for the
+                // graph instead of burning the 10s retry on it. SyncScene runs every half second
+                // and the retry timer is untouched here, so the next tick simply asks again.
+                if (!_graphWaitLogged)
+                {
+                    _graphWaitLogged = true;
+                    _graphWaitSince = Time.unscaledTime;
+                    _log("Pathfinder graph not ready for " + mapId + "; waiting before placement");
+                }
+                else if (!_graphWaitNotified && Time.unscaledTime - _graphWaitSince > 10f)
+                {
+                    _graphWaitNotified = true;
+                    _log("Pathfinder graph still not ready for " + mapId + " after 10s");
+                    Notify("本区域驿站生成失败，请查看 F8 日志。", false,
+                        "菜鸭驿站 · 生成失败", NoticeKind.Danger,
+                        "把日志末尾发给作者；10 秒后会重试", "错误");
+                }
+                return;
+            }
+            _graphWaitLogged = false;
+            _graphWaitNotified = false;
+            if (!_graphInfoLogged)
+            {
+                _graphInfoLogged = true;
+                _log("Pathfinder graph ready nodes=" + PathProbe.NodeCount());
+            }
+
             if (!_store.Loaded)
             {
                 _store.Load();
@@ -418,7 +451,7 @@ namespace CaiYaStation
             snapped = station;
             var actor = Actor;
             var anchor = new Vector3((float)station.X, (float)station.Y, (float)station.Z);
-            if (NavMesh.SamplePosition(anchor, out var nav, 10, NavMesh.AllAreas)) anchor = nav.position;
+            if (PathProbe.TrySnap(anchor, out var snappedAnchor, out _)) anchor = snappedAnchor;
             // Placement walks the route from the designed anchor; a repair has to prove the
             // route from where the player actually stands.
             var pathOrigin = walkFromActor && actor != null ? actor.transform.position : anchor;
@@ -432,6 +465,9 @@ namespace CaiYaStation
             var yaw = (float)station.Yaw;
             foreach (var pass in passes)
             {
+                // A fresh budget per pass: pass 0 searches the designed band, and a sweep that
+                // spent its allowance there must not starve the relaxed passes that follow.
+                PathProbe.ResetBudget();
                 // The first acceptable point used to win outright, so an 8m candidate that grazed
                 // a river bank beat a clean 12m one. Score every survivor and keep the best.
                 var bestScore = double.MaxValue;
@@ -507,6 +543,16 @@ namespace CaiYaStation
                 if (pass == 0)
                     _log("No station point satisfied the 40-80m extraction band for id=" + station.Id + "; relaxing");
             }
+            // Every point was reachable only in theory: the anchor itself may sit on a roof or in
+            // a sealed room, so a route from it proves nothing about the player. Ask the same
+            // question from where the player actually stands before giving up, otherwise one bad
+            // anchor silently removes the whole map's kiosks.
+            if (!walkFromActor && actor != null)
+            {
+                _log("Station anchor unreachable for id=" + station.Id + "; retrying from the player position");
+                return TryPlaceStation(station, scene, alreadyPlaced, teleporters, extractions, out snapped,
+                    walkFromActor: true, ignoreId: ignoreId);
+            }
             return false;
         }
 
@@ -514,10 +560,10 @@ namespace CaiYaStation
         {
             var actor = Actor;
             if (actor == null) return false;
-            // A scene that has just streamed in has no baked navmesh yet, and every station would
+            // A scene that has just streamed in has no scanned graph yet, and every station would
             // look unreachable. Waiting for the ground under the player to answer is the cheapest
-            // proof that the navmesh is live, and the gate below stays open until it does.
-            if (!NavMesh.SamplePosition(actor.transform.position, out _, 2f, NavMesh.AllAreas)) return false;
+            // proof that the graph is live, and the gate below stays open until it does.
+            if (!PathProbe.TrySnap(actor.transform.position, out _, out _)) return false;
             var key = _store.Session.Token + "|" + site.MapId + "|" + scene.name;
             if (string.Equals(_repairKey, key, StringComparison.Ordinal)) return false;
             _repairKey = key;
@@ -551,8 +597,8 @@ namespace CaiYaStation
                 var others = existing.Where(other => !ReferenceEquals(other, station)).ToList();
                 // Preferred: a point the player can actually walk to right now. Fallback: the same
                 // geometric checks anchored at the designed point, for when the player stands on a
-                // navmesh island the candidate cannot be reached from (the route check would then
-                // reject every candidate and leave the broken station in place forever).
+                // piece of the graph the candidate cannot be reached from (the route check would
+                // then reject every candidate and leave the broken station in place forever).
                 if (!TryPlaceStation(probe, scene, others, teleporters, extractions, out var snapped,
                         walkFromActor: true, ignoreId: station.Id)
                     && !TryPlaceStation(probe, scene, others, teleporters, extractions, out snapped,
@@ -801,12 +847,10 @@ namespace CaiYaStation
             if (!SafeGround.LineOfSight(from + Vector3.up * 1.4f, target + Vector3.up * 1.0f)) return false;
             if (Vector3.Distance(from, target) <= radius) return true;
             // Standing further away is only fine when the walk itself is short: a station across
-            // a fence can be three metres away and a hundred metres of walking away.
-            var path = new NavMeshPath();
-            if (!NavMesh.CalculatePath(from, target, NavMesh.AllAreas, path)
-                || path.status != NavMeshPathStatus.PathComplete)
-                return false;
-            return PlacementPolicy.PathIsReasonable(SafeGround.PathLengthOf(path), Vector3.Distance(from, target),
+            // a fence can be three metres away and a hundred metres of walking away. This is a
+            // per-interaction query, so it never draws from the placement budget.
+            if (!PathProbe.TryMeasure(from, target, out var pathLength, out _, budgeted: false)) return false;
+            return PlacementPolicy.PathIsReasonable(pathLength, Vector3.Distance(from, target),
                 PlacementPolicy.MaximumPathDetour, radius * 2.0);
         }
 
