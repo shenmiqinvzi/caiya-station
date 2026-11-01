@@ -20,6 +20,12 @@ namespace CaiYaStation
         private readonly StationVisuals _visuals;
         private readonly Dictionary<string, GameObject> _stations = new Dictionary<string, GameObject>();
         private readonly Dictionary<string, GameObject> _markers = new Dictionary<string, GameObject>();
+        /// <summary>
+        /// Scene id last used for each marker. SimplePointOfInterest.Setup re-registers the POI,
+        /// and a re-register with an empty override scene id would hide the marker from the
+        /// minimap while the player is inside a sub-scene, so the id has to be replayed.
+        /// </summary>
+        private readonly Dictionary<string, string> _markerSceneIds = new Dictionary<string, string>();
         private readonly Dictionary<string, StationView> _views = new Dictionary<string, StationView>();
         private readonly HashSet<string> _announced = new HashSet<string>();
         private readonly Queue<Notice> _notices = new Queue<Notice>();
@@ -43,6 +49,12 @@ namespace CaiYaStation
         private bool _extractionConstraintLogged;
         private bool _placementFailureNotified;
         private string _repairKey = "";
+        /// <summary>
+        /// Anchors that failed every pass this raid. Their geometry cannot change between the
+        /// 10s retries, so re-scanning them only burns the blocking path budget; the set clears
+        /// when a new raid (and its fresh station set) begins.
+        /// </summary>
+        private readonly HashSet<string> _failedAnchors = new(StringComparer.Ordinal);
         private bool _graphWaitLogged;
         private bool _graphWaitNotified;
         private float _graphWaitSince;
@@ -70,14 +82,14 @@ namespace CaiYaStation
             internal float Duration = 4.5f;
         }
 
-        internal StationWorld(ModConfig config, StationLayout layout, ShipmentRuntime runtime, StateStore store, Action<string> log)
+        internal StationWorld(ModConfig config, StationLayout layout, ShipmentRuntime runtime, StateStore store, Action<string> log, string? resourceDirectory = null)
         {
             _config = config;
             _layout = layout;
             _runtime = runtime;
             _store = store;
             _log = log;
-            _visuals = new StationVisuals(log);
+            _visuals = new StationVisuals(log, resourceDirectory);
             _lastReceiptCountNotified = store.Receipts.Count;
         }
 
@@ -165,6 +177,7 @@ namespace CaiYaStation
                         ClearVisuals();
                         _announced.Clear();
                         ClearNotices();
+                        _failedAnchors.Clear();
                         // Leaving the bunker with a receipt still open must not trap input in the
                         // raid; drop the sheet, keep it unread, show it again on the next return.
                         _panel?.DismissReceipt();
@@ -303,6 +316,7 @@ namespace CaiYaStation
             {
                 _store.BeginRaid(DateTimeOffset.Now);
                 _announced.Clear();
+                _failedAnchors.Clear();
             }
 
             var existing = _store.Session.ForMap(mapId).ToList();
@@ -420,9 +434,15 @@ namespace CaiYaStation
             foreach (var station in chosen)
             {
                 attempted.Add(station.Id);
+                if (_failedAnchors.Contains(station.Id))
+                {
+                    _log("Station anchor cooldown id=" + station.Id + "; skipping until the next raid");
+                    continue;
+                }
                 if (!TryPlaceStation(station, scene, placed, teleporters, extractions, out var snapped))
                 {
                     _log("Station anchor rejected id=" + station.Id);
+                    _failedAnchors.Add(station.Id);
                     continue;
                 }
                 placed.Add(snapped);
@@ -431,12 +451,17 @@ namespace CaiYaStation
             {
                 if (placed.Count >= wanted) break;
                 if (attempted.Contains(candidate.Id)) continue;
+                if (_failedAnchors.Contains(candidate.Id)) continue;
                 if (!TryPlaceStation(new StationRecord
                     {
                         Id = candidate.Id, Name = candidate.Name, MapId = candidate.MapId, SceneName = candidate.SceneName,
                         X = candidate.X, Y = candidate.Y, Z = candidate.Z, Yaw = candidate.Yaw
                     }, scene, placed, teleporters, extractions, out var snapped))
                 {
+                    // Geometry will not change between retries this raid: a candidate whose
+                    // neighbourhood is all wall/roof stays that way. Cool it down instead of
+                    // re-burning the placement budget on it every 10 seconds.
+                    _failedAnchors.Add(candidate.Id);
                     continue;
                 }
                 placed.Add(snapped);
@@ -453,7 +478,8 @@ namespace CaiYaStation
             var anchor = new Vector3((float)station.X, (float)station.Y, (float)station.Z);
             if (PathProbe.TrySnap(anchor, out var snappedAnchor, out _)) anchor = snappedAnchor;
             // Placement walks the route from the designed anchor; a repair has to prove the
-            // route from where the player actually stands.
+            // route from where the player actually stands. (The route itself is measured in the
+            // candidate loop below, after the free filters have thinned the field.)
             var pathOrigin = walkFromActor && actor != null ? actor.transform.position : anchor;
 
             var rings = _config.Placement.SearchRings.Count > 0
@@ -482,8 +508,10 @@ namespace CaiYaStation
                         var angle = station.Yaw + index * (360.0 / angles);
                         var offset = Quaternion.Euler(0, (float)angle, 0) * Vector3.forward * (float)ring;
                         var candidate = anchor + offset;
-                        if (!SafeGround.Find(pathOrigin, candidate, actor, maxSlope, yaw, out var point,
-                                out var pathLength, out var reason))
+                        // Free checks first (snap, ground, water, footprint, occupancy); the walk
+                        // is only measured once a candidate survives every cheap filter, so
+                        // candidates the distance rules would discard never cost a path request.
+                        if (!SafeGround.Resolve(candidate, actor, maxSlope, yaw, out var point, out var reason))
                         {
                             rejects[reason] = rejects.TryGetValue(reason, out var count) ? count + 1 : 1;
                             continue;
@@ -504,6 +532,21 @@ namespace CaiYaStation
                             rejects["extraction-band"] =
                                 rejects.TryGetValue("extraction-band", out var c3) ? c3 + 1 : 1;
                             continue;
+                        }
+                        var pathLength = float.MaxValue;
+                        if (actor != null)
+                        {
+                            // Placement walks the route from the designed anchor; a repair has to
+                            // prove the route from where the player actually stands.
+                            if (!PathProbe.TryMeasure(pathOrigin, point, out pathLength, out var measureReason)
+                                || !PlacementPolicy.PathIsReasonable(pathLength, Vector3.Distance(pathOrigin, point)))
+                            {
+                                reason = measureReason.Length > 0
+                                    ? measureReason
+                                    : "detour-" + pathLength.ToString("0") + "m";
+                                rejects[reason] = rejects.TryGetValue(reason, out var c4) ? c4 + 1 : 1;
+                                continue;
+                            }
                         }
                         var score = PlacementPolicy.Score(pathLength, ring);
                         if (score >= bestScore) continue;
@@ -541,7 +584,14 @@ namespace CaiYaStation
                     _log("Station pass " + pass + " rejected every point for id=" + station.Id + ": " + summary);
                 }
                 if (pass == 0)
-                    _log("No station point satisfied the 40-80m extraction band for id=" + station.Id + "; relaxing");
+                {
+                    // Name the band log only when the band was actually the reason; a pass whose
+                    // rejects are all budget-spent or graph-gap says nothing about the band.
+                    if (rejects.TryGetValue("extraction-band", out var bandRejects) && bandRejects > 0)
+                        _log("No station point satisfied the " + _config.Placement.MinimumExtractionDistance + "-"
+                             + _config.Placement.MaximumExtractionDistance + "m extraction band for id="
+                             + station.Id + "; relaxing");
+                }
             }
             // Every point was reachable only in theory: the anchor itself may sit on a roof or in
             // a sealed room, so a route from it proves nothing about the player. Ask the same
@@ -571,6 +621,7 @@ namespace CaiYaStation
             var teleporters = CollectTeleporterPositions();
             var extractions = CollectExtractionPositions();
             var changed = false;
+            var unresolvedCount = 0;
             foreach (var station in existing)
             {
                 if (!string.Equals(station.SceneName, scene.name, StringComparison.Ordinal)) continue;
@@ -604,6 +655,13 @@ namespace CaiYaStation
                     && !TryPlaceStation(probe, scene, others, teleporters, extractions, out snapped,
                         walkFromActor: false, ignoreId: station.Id))
                 {
+                    // Both attempts failed. Reopen the repair window instead of leaving the key
+                    // spent: a repair that runs while the player stands on an isolated island of
+                    // the graph would otherwise pin this broken spot for the whole raid even
+                    // after they walk somewhere a route exists from. The retry is throttled by
+                    // the 10s placement timer, so the loop stays bounded.
+                    _repairKey = "";
+                    unresolvedCount++;
                     _log("Station unreachable id=" + station.Id + " (" + reason + "); no replacement found");
                     continue;
                 }
@@ -627,6 +685,7 @@ namespace CaiYaStation
                 {
                     if (oldMarker != null) UnityEngine.Object.Destroy(oldMarker);
                     _markers.Remove(station.Id);
+                    _markerSceneIds.Remove(station.Id);
                 }
             }
             if (changed)
@@ -634,6 +693,12 @@ namespace CaiYaStation
                 Notify("有驿站原先落在到不了的位置，已挪到附近可走的空地。", false,
                     "菜鸭驿站 · 位置已修正", NoticeKind.Info,
                     "地图标记会跟着更新", "修正");
+            }
+            if (unresolvedCount > 0)
+            {
+                // A repair pass that left broken stations in place is not "done": let the next
+                // sync try again once the player has moved somewhere the graph can route from.
+                _repairKey = "";
             }
             return changed;
         }
@@ -728,7 +793,10 @@ namespace CaiYaStation
             foreach (var id in _stations.Where(pair => pair.Value == null).Select(pair => pair.Key).ToList())
                 _stations.Remove(id);
             foreach (var id in _markers.Where(pair => pair.Value == null).Select(pair => pair.Key).ToList())
+            {
                 _markers.Remove(id);
+                _markerSceneIds.Remove(id);
+            }
             foreach (var id in _views.Where(pair => pair.Value == null).Select(pair => pair.Key).ToList())
                 _views.Remove(id);
         }
@@ -790,6 +858,7 @@ namespace CaiYaStation
                     if (previous != null) UnityEngine.Object.Destroy(previous);
                     _markers.Remove(station.Id);
                 }
+                _markerSceneIds.Remove(station.Id);
                 // The minimap filters POIs by override scene id. MainScene's id makes the
                 // marker invisible while the player is in the active sub-scene, so prefer
                 // ActiveSubSceneID and only fall back to the scene's build index.
@@ -801,15 +870,18 @@ namespace CaiYaStation
                     sceneId = scene.name;
                 marker = SimplePointOfInterest.Create(
                     new Vector3((float)station.X, (float)station.Y, (float)station.Z),
-                    sceneId, station.Name, _visuals.Icon, false);
-                // Create() registers in OnEnable before its fields are assigned; re-apply the
-                // scene/name/icon so the minimap definitely sees the right values.
-                marker.Setup(_visuals.Icon, station.Name, false, sceneId);
-                // Bright, saturated colours plus a bigger scale: the old marker was dim and
-                // easy to miss on the dark minimap, especially at night or in a storm.
-                marker.Color = station.Used ? new Color(0.55f, 0.55f, 0.55f) : new Color(0.30f, 1f, 0.55f);
+                    sceneId, station.Name, _visuals.MarkerIcon, false);
+                // The marker art is a full-colour sticker, so Color stays white: the minimap
+                // multiplies this into the sprite, and any tint would stain the awning. "Already
+                // shipped" is shown by swapping in the grey sprite instead.
+                marker.Color = Color.white;
                 marker.ScaleFactor = 1.35f;
+                // Create() registers in OnEnable before its fields are assigned, and the minimap
+                // entry only copies icon/color during its own Setup. Re-applying Setup last is
+                // what actually pushes the sticker (and the colour above) onto the minimap.
+                marker.Setup(station.Used ? _visuals.MarkerIconUsed : _visuals.MarkerIcon, station.Name, false, sceneId);
                 _markers[station.Id] = marker.gameObject;
+                _markerSceneIds[station.Id] = sceneId;
                 _log("Station marker id=" + station.Id + " sceneId=" + sceneId
                      + " overrideScene=" + marker.OverrideScene);
             }
@@ -817,6 +889,7 @@ namespace CaiYaStation
             {
                 if (marker != null) UnityEngine.Object.Destroy(marker.gameObject);
                 _markers.Remove(station.Id);
+                _markerSceneIds.Remove(station.Id);
                 _log("Station marker failed id=" + station.Id + ": " + exception.Message);
             }
         }
@@ -827,7 +900,15 @@ namespace CaiYaStation
             if (_markers.TryGetValue(stationId, out var marker))
             {
                 var point = marker.GetComponent<SimplePointOfInterest>();
-                if (point != null) point.Color = new Color(0.55f, 0.55f, 0.55f);
+                if (point != null)
+                {
+                    // A tint alone never reaches the minimap (PointOfInterestEntry copies Color
+                    // only in its own Setup), and it would also wash the sticker's colours. Swap
+                    // to the grey sprite and re-register so the entry rebuilds with it.
+                    point.Color = Color.white;
+                    var sceneId = _markerSceneIds.TryGetValue(stationId, out var known) ? known : "";
+                    point.Setup(_visuals.MarkerIconUsed, point.DisplayName, false, sceneId);
+                }
             }
         }
 
@@ -1065,8 +1146,8 @@ namespace CaiYaStation
                                 if (theme != null) theme.DrawPill(pill);
                                 var previous = GUI.contentColor;
                                 GUI.contentColor = station.Used
-                                    ? new Color(0.78f, 0.78f, 0.78f, 0.98f)
-                                    : new Color(0.72f, 1f, 0.82f, 1f);
+                                    ? new Color(0.478f, 0.525f, 0.584f, 0.98f)
+                                    : new Color(0.094f, 0.400f, 0.220f, 1f);
                                 GUI.Label(pill, content.text, labelStyle);
                                 GUI.contentColor = previous;
                             }
@@ -1178,7 +1259,7 @@ namespace CaiYaStation
         private static Color NoticeAccent(NoticeKind kind, UiTheme? theme)
         {
             if (theme == null)
-                return kind == NoticeKind.Danger ? new Color(1f, 0.48f, 0.42f, 1f) : new Color(0.32f, 0.90f, 0.58f, 1f);
+                return kind == NoticeKind.Danger ? new Color(0.722f, 0.239f, 0.243f, 1f) : new Color(0.086f, 0.478f, 0.286f, 1f);
             return kind switch
             {
                 NoticeKind.Success => theme.Good,
@@ -1253,10 +1334,13 @@ namespace CaiYaStation
             _initialized = false;
             _observedRaid = false;
             _baseNoticeShown = false;
-            _lastReceiptCountNotified = -1;
+            // Receipts belong to the save being loaded; counting the ones already on disk here
+            // keeps "货已送达" from firing for mail the player read in an earlier session.
+            _lastReceiptCountNotified = _store.Receipts.Count;
             _nextPlacementRetry = 0;
             _placementFailureNotified = false;
             _repairKey = "";
+            _failedAnchors.Clear();
             ClearNotices();
             // Switching save files must not spend the old save's unread receipt: drop the sheet
             // without acknowledging it, then close whatever else was open.
@@ -1272,6 +1356,7 @@ namespace CaiYaStation
                 if (marker != null) UnityEngine.Object.Destroy(marker);
             _stations.Clear();
             _markers.Clear();
+            _markerSceneIds.Clear();
             _views.Clear();
             _mapId = "";
             _sceneName = "";

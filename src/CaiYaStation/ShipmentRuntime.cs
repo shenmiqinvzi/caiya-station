@@ -77,6 +77,8 @@ namespace CaiYaStation
             var typeId = item.TypeID;
             var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var tagReadFailed = false;
+            var category = "";
+            var caliber = "";
             try
             {
                 if (item.Tags != null && item.Tags.list != null)
@@ -108,6 +110,10 @@ namespace CaiYaStation
                         if (!string.IsNullOrWhiteSpace(display)) tags.Add(display);
                     }
                 }
+                // Catagory is the first tag's name and caliber is only filled in for firearms;
+                // both are only used to tell a wielded item apart from a real container.
+                try { category = meta.Catagory ?? ""; } catch { category = ""; }
+                try { caliber = meta.caliber ?? ""; } catch { caliber = ""; }
             }
             catch (Exception exception)
             {
@@ -135,13 +141,22 @@ namespace CaiYaStation
                 CanDrop = item.CanDrop,
                 HasContainerInventory = inventory != null && inventory.Capacity > 0,
                 Tags = tags.ToList(),
-                ProtectionCheckFailed = tagReadFailed
+                ProtectionCheckFailed = tagReadFailed,
+                HasHandHeldAgent = SafeHasHandHeldAgent(item),
+                Category = category,
+                Caliber = caliber
             };
         }
 
         private static bool SafeIsEquipped(Item item)
         {
             try { return item.IsInCharacterSlot(); }
+            catch { return false; }
+        }
+
+        private static bool SafeHasHandHeldAgent(Item item)
+        {
+            try { return item.HasHandHeldAgent; }
             catch { return false; }
         }
 
@@ -336,11 +351,15 @@ namespace CaiYaStation
                 {
                     // Unity instance ids are not stable across process restarts. Fall back to a
                     // one-to-one fingerprint (type / stack / unit value), then to a looser match so
-                    // a stack the player split or merged still counts as delivered.
+                    // a stack the player split or merged still counts as delivered. The last
+                    // resort never goes below the journal's stack count: pushing a smaller
+                    // sibling stack would hand the player fewer items than they paid for and
+                    // silently consume a stack they meant to keep.
                     var live = FindLive(inventory, line.InstanceId)
                                ?? FindLiveByFingerprint(inventory, line, claimed)
                                ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, true)
-                               ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, false);
+                               ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, false,
+                                   minStackCount: line.StackCount);
                     if (live == null)
                     {
                         _log("Recovery could not locate item id=" + line.InstanceId
@@ -354,12 +373,12 @@ namespace CaiYaStation
                 // Planned-loss items: payment already happened, but the crash may have hit
                 // between payment and RemoveAndDestroy. If such a stack is still in the
                 // backpack, finish the plan and destroy it; the receipt already counts it lost.
+                // Destroying on a guess is worse than leaving the item alone, so only the
+                // exact instance id or the strict fingerprint may name a stack here.
                 foreach (var line in journal.Items.Where(line => line.Lost && !line.Pushed))
                 {
                     var live = FindLive(inventory, line.InstanceId)
-                               ?? FindLiveByFingerprint(inventory, line, claimed)
-                               ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, true)
-                               ?? FindLiveByRelaxedFingerprint(inventory, line, claimed, false);
+                               ?? FindLiveByFingerprint(inventory, line, claimed);
                     if (live == null)
                     {
                         // Not in the backpack: either already destroyed before the crash, or
@@ -467,9 +486,14 @@ namespace CaiYaStation
         /// Second chance for a recovery match. The player may have split or merged the stack after
         /// the crash, which moves the stack count; unit value stays exact on the first pass because
         /// that is what the receipt was priced from. Each live item is still claimed only once.
+        ///
+        /// <paramref name="minStackCount"/> bounds the fallback: the journal records what the
+        /// player paid for, so a match may hold at least that many items. Without the bound the
+        /// first same-type stack on the shelf would be claimed even when a smaller sibling stack
+        /// was the one that actually survived the crash.
         /// </summary>
         private static Item? FindLiveByRelaxedFingerprint(Inventory inventory, JournalItem line,
-            HashSet<int> claimed, bool exactValue)
+            HashSet<int> claimed, bool exactValue, long minStackCount = 0)
         {
             Item? fallback = null;
             foreach (var item in inventory.Content)
@@ -484,7 +508,7 @@ namespace CaiYaStation
                     claimed.Add(instanceId);
                     return item;
                 }
-                if (fallback == null) fallback = item;
+                if (item.StackCount >= minStackCount && fallback == null) fallback = item;
             }
             if (fallback == null) return null;
             claimed.Add(fallback.GetInstanceID());
@@ -520,7 +544,11 @@ namespace CaiYaStation
                 EscortMoney = journal.EscortMoney,
                 EscortName = journal.EscortName,
                 LossRate = journal.LossRate,
-                Flavor = journal.Flavor
+                Flavor = journal.Flavor,
+                // Written now so the sheet can show what the escort actually consumed. Receipts
+                // archived before these fields existed keep 0 and the sheet says 未记录.
+                EscortItemId = journal.EscortItemId,
+                EscortItemAmount = journal.EscortItemAmount
             };
             if (journal.Items.Any(line => line.Lost))
             {

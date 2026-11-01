@@ -27,6 +27,13 @@ namespace CaiYaStation.Domain
         };
 
         public HashSet<int> ProtectedTypeIds { get; set; } = new HashSet<int> { 451 };
+
+        /// <summary>
+        /// The game tags every gun with "Continer" because it accepts attachments. That made a
+        /// rifle look like a backpack and blocked it. When true, wielded items (and anything with
+        /// a caliber) skip the container rule; quest/key/cash protection still applies.
+        /// </summary>
+        public bool AllowWeapons { get; set; } = true;
     }
 
     public static class ItemEligibility
@@ -43,10 +50,18 @@ namespace CaiYaStation.Domain
             if (item.StackCount <= 0) return "数量异常，不能寄送";
             if (item.IsEquipped) return "装备中的物品不可寄送";
             if (rules.ProtectedTypeIds.Contains(item.TypeId)) return "现金/货币类物品不可寄送";
-            if (item.HasContainerInventory) return "容器类物品不可寄送";
-            if (item.Tags.Any(tag => rules.ContainerTags.Contains(tag))) return "容器类物品不可寄送";
+            // Guns carry the game's "Continer" tag because they accept attachments; without this
+            // exemption a rifle is refused as a container while every other container still is.
+            // "Continer"/"Backpack" also sit in ProtectedTags, so the generic protected-tag check
+            // below has to ignore those two names for a weapon or the exemption would be undone.
+            var containerRuleApplies = !(rules.AllowWeapons && item.IsWeapon);
+            if (containerRuleApplies && item.HasContainerInventory) return "容器类物品不可寄送";
+            if (containerRuleApplies && item.Tags.Any(tag => rules.ContainerTags.Contains(tag)))
+                return "容器类物品不可寄送";
             if (item.Tags.Any(tag => rules.CurrencyTags.Contains(tag))) return "现金/货币类物品不可寄送";
-            if (item.Tags.Any(tag => rules.ProtectedTags.Contains(tag))) return "任务/钥匙/唯一物品不可寄送";
+            if (item.Tags.Any(tag => rules.ProtectedTags.Contains(tag)
+                                     && (containerRuleApplies || !rules.ContainerTags.Contains(tag))))
+                return "任务/钥匙/唯一物品不可寄送";
             foreach (var prefix in rules.ProtectedNamePrefixes)
             {
                 if (item.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))

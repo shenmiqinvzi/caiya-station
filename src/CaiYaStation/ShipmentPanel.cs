@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using CaiYaStation.Domain;
+using ItemStatsSystem;
 using UnityEngine;
 
 namespace CaiYaStation
@@ -57,8 +59,17 @@ namespace CaiYaStation
         private int _hoverChanges;
         private float _hoverWindow;
         private float _lastHoverLog = -100f;
+
+        /// <summary>
+        /// Logical pixels one wheel notch moves the list. A whole row would be 40; a hair more
+        /// keeps the last row of a page from being clipped at the edge of the viewport.
+        /// </summary>
+        private const float ScrollStep = 44f;
         private GUIStyle? _badgeDanger;
-        private GUIStyle? _receiptHeadline;
+        private ReceiptRenderer? _receiptRenderer;
+        private float _receiptDeliveredScroll;
+        private float _receiptLostScroll;
+        private readonly HashSet<int> _iconlessTypeIds = new HashSet<int>();
 
         internal Action<string>? ModRuntimeLog;
 
@@ -256,6 +267,8 @@ namespace CaiYaStation
             var palette = _theme.Palette;
             _painter = new GuiPanelPainter(palette);
             _renderer = new PanelRenderer(palette, _painter);
+            _receiptRenderer = new ReceiptRenderer(_painter, palette, ItemIcon, ItemName,
+                line => ModRuntimeLog?.Invoke(line));
             return _theme;
         }
 
@@ -536,15 +549,20 @@ namespace CaiYaStation
                     if (layout.Panel.Contains(mouse)) current.Use();
                     return;
                 case EventType.ScrollWheel:
+                    // Unity's IMGUI reports a positive delta.y for a notch rolled towards the user
+                    // (the same direction the canonical `scrollPos.y += delta.y * step` snippet
+                    // relies on), and a larger scroll value reveals later rows. Adding the delta is
+                    // therefore the natural direction — wheel down walks down the list. The old
+                    // code subtracted it, which made the list run backwards under the wheel.
                     if (layout.ListView.Contains(mouse))
                     {
-                        _listScroll = Mathf.Clamp(_listScroll - Mathf.Sign(current.delta.y) * 44f, 0f,
+                        _listScroll = Mathf.Clamp(_listScroll + Mathf.Sign(current.delta.y) * ScrollStep, 0f,
                             layout.MaxListScroll(_rows.Count));
                         current.Use();
                     }
                     else if (layout.ManifestView.Contains(mouse))
                     {
-                        _manifestScroll = Mathf.Clamp(_manifestScroll - Mathf.Sign(current.delta.y) * 44f, 0f,
+                        _manifestScroll = Mathf.Clamp(_manifestScroll + Mathf.Sign(current.delta.y) * ScrollStep, 0f,
                             layout.MaxManifestScroll(_manifest.Count));
                         current.Use();
                     }
@@ -796,117 +814,47 @@ namespace CaiYaStation
 
         // ------------------------------------------------------------------ modal screens
 
+        /// <summary>
+        /// Delivery receipt. The goods are already in the arrival buffer by the time this sheet is
+        /// shown, so there is no "claim" button here: the only honest action is to acknowledge and
+        /// close. Nothing on this screen pays out, re-rolls the loss or pushes items again.
+        ///
+        /// All painting lives in ReceiptRenderer so the offline preview replays the exact same code;
+        /// this method only feeds it state, collects the wheel, and turns the painted rects into
+        /// click targets.
+        /// </summary>
         private void DrawReceipt(UiTheme theme, float logicalWidth, float logicalHeight)
         {
             HandleEscape();
             if (_receiptData == null && _receiptText == null) return;
-            theme.DrawDim(logicalWidth, logicalHeight);
-            var layout = ReceiptLayout.Compute(logicalWidth, logicalHeight);
-            var panel = layout.Panel;
-            theme.DrawPanel(panel);
             var receipt = _receiptData;
+            var lostEmpty = receipt == null || receipt.LostStacks == 0;
+            var layout = ReceiptLayout.Compute(logicalWidth, logicalHeight, lostEmpty);
 
-            theme.DrawHeader(layout.Header);
-            theme.DrawSolid(layout.HeaderAccent, theme.Accent);
-            GUI.Label(layout.HeaderTitle, "发货回执", theme.Title);
-            theme.DrawPill(layout.HeaderBadge);
-            GUI.Label(layout.HeaderBadge, receipt == null ? "已完成" : receipt.DeliveredStacks > 0 ? "已送达" : "全部丢失",
-                receipt == null || receipt.DeliveredStacks > 0 ? theme.Badge : _badgeDanger!);
-            GUI.Label(layout.HeaderSubtitle,
-                "菜鸭驿站 → 地堡马蜂自提点　·　货物已写入到货缓冲区", theme.Subtitle);
-            if (GUI.Button(layout.HeaderClose, "×", theme.CloseButton))
+            if (receipt != null)
+            {
+                HandleTableScroll(layout.Delivered, receipt.Delivered.Count, ref _receiptDeliveredScroll);
+                if (!lostEmpty) HandleTableScroll(layout.Lost, receipt.Lost.Count, ref _receiptLostScroll);
+            }
+
+            _receiptRenderer!.DrawReceipt(layout, logicalWidth, logicalHeight, receipt, _receiptText,
+                _world?.Visuals.Icon, ref _receiptDeliveredScroll, ref _receiptLostScroll);
+
+            if (GUI.Button(layout.HeaderClose, GUIContent.none, GUIStyle.none))
             {
                 Close();
                 return;
             }
-
-            if (receipt == null)
-            {
-                GUI.Label(new Rect(panel.x + 24, panel.y + 90, panel.width - 48, panel.height - 150),
-                    _receiptText ?? "", theme.Label);
-                if (GUI.Button(layout.Button, "关闭", theme.Button)) Close();
-                return;
-            }
-
-            var escortName = string.IsNullOrWhiteSpace(receipt.EscortName) ? "无" : receipt.EscortName;
-            DrawChip(theme, layout.ChipOne, "送达",
-                receipt.DeliveredStacks + " 件", "价值 " + receipt.DeliveredValue.ToString("N0"), theme.Good);
-            DrawChip(theme, layout.ChipTwo, "丢失",
-                receipt.LostStacks + " 件", "价值 " + receipt.LostValue.ToString("N0"),
-                receipt.LostStacks > 0 ? theme.Danger : theme.TextDim);
-            DrawChip(theme, layout.ChipThree, "运费", receipt.Fee.ToString("N0"),
-                receipt.EscortMoney > 0 ? "护送 " + receipt.EscortMoney.ToString("N0") : "无护送", theme.Text);
-            DrawChip(theme, layout.ChipFour, "护送", escortName,
-                "损耗 " + Percent(receipt.LossRate), theme.Accent);
-
-            DrawReceiptList(theme, layout.Delivered, "已送达", receipt.Delivered, theme.Good);
-            DrawReceiptList(theme, layout.Lost, "丢失", receipt.Lost, theme.Danger);
-
-            var lost = receipt.LostStacks > 0;
-            var culprits = string.IsNullOrWhiteSpace(receipt.LossCulprits) ? Receipts.FallbackCulprits : receipt.LossCulprits;
-            var kaomoji = lost
-                ? (string.IsNullOrWhiteSpace(receipt.LossKaomoji) ? Receipts.FallbackLossKaomoji : receipt.LossKaomoji)
-                : Receipts.DeliveredKaomoji;
-            var headline = lost
-                ? "我们的人被" + culprits + "暴打了，货也弄丢了…" + kaomoji
-                : "整批货安全入库，清点无误。" + kaomoji;
-            if (_receiptHeadline == null)
-                _receiptHeadline = new GUIStyle(theme.Label) { fontSize = 15, fontStyle = FontStyle.Bold };
-            _receiptHeadline.normal.textColor = lost ? theme.Danger : theme.Good;
-            GUI.Label(layout.Headline, headline, _receiptHeadline);
-            if (!string.IsNullOrWhiteSpace(receipt.Flavor))
-                GUI.Label(layout.Flavor, receipt.Flavor, theme.Small);
-
-            if (GUI.Button(layout.Button, "关闭", theme.Button)) Close();
-        }
-
-        private static void DrawChip(UiTheme theme, Rect rect, string label, string value, string sub, Color valueColor)
-        {
-            theme.DrawCard(rect, false);
-            GUI.Label(new Rect(rect.x + 10, rect.y + ReceiptLayout.ChipLabelTop, rect.width - 20, 16), label, theme.Small);
-            var previous = GUI.color;
-            GUI.color = valueColor;
-            GUI.Label(new Rect(rect.x + 10, rect.y + ReceiptLayout.ChipValueTop, rect.width - 20, 24), value, theme.RowValueBold);
-            GUI.color = previous;
-            GUI.Label(new Rect(rect.x + 10, rect.y + ReceiptLayout.ChipSubTop, rect.width - 20, 16), sub, theme.Small);
-        }
-
-        private static void DrawReceiptList(UiTheme theme, Rect area, string title, List<ReceiptLine> lines, Color accent)
-        {
-            theme.DrawCard(area, false);
-            theme.DrawSolid(new Rect(area.x, area.y + 10, 3, 22), accent);
-            GUI.Label(new Rect(area.x + 12, area.y + 8, area.width - 24, 24), title + "　" + lines.Count + " 件", theme.Section);
-            var y = area.y + ReceiptLayout.ListTitleHeight;
-            var capacity = ReceiptLayout.ListCapacity(area.height);
-            var shown = Mathf.Min(lines.Count, capacity);
-            for (var index = 0; index < shown; index++)
-            {
-                var line = lines[index];
-                GUI.Label(new Rect(area.x + 12, y, area.width - 116, 20),
-                    line.Name + (line.StackCount > 1 ? " ×" + line.StackCount : ""), theme.RowName);
-                GUI.Label(new Rect(area.xMax - 100, y, 88, 20), line.GoodsValue.ToString("N0"), theme.RowValue);
-                y += ReceiptLayout.ListRowHeight;
-            }
-            if (lines.Count == 0)
-            {
-                GUI.Label(new Rect(area.x + 12, y, area.width - 24, 20), "无", theme.Small);
-            }
-            else if (shown < lines.Count)
-            {
-                GUI.Label(new Rect(area.x + 12, area.yMax - ReceiptLayout.ListFooterHeight, area.width - 24, 18),
-                    "另有 " + (lines.Count - shown) + " 条未显示（见回执历史）", theme.Small);
-            }
+            if (GUI.Button(layout.Button, GUIContent.none, GUIStyle.none)) Close();
         }
 
         /// <summary>
-        /// Loss sheet: culprits line, lost stacks, total value, sign button. Laid out top-down from
-        /// measured heights, so the note line and the buttons can no longer land on each other.
+        /// Loss notice: a prologue to the receipt, not a dead end. Esc, ×, both buttons only hand the
+        /// screen to the receipt — closing the sheet never cancels or re-runs the settlement.
         /// </summary>
         private void DrawLossNotice(UiTheme theme, float logicalWidth, float logicalHeight)
         {
             var receipt = _receiptData;
-            // The sheet is a prologue to the receipt, not a dead end: both Esc and × hand the
-            // screen over to the receipt instead of closing the whole panel.
             var current = Event.current;
             if (current != null && current.type == EventType.KeyDown && current.keyCode == KeyCode.Escape)
             {
@@ -921,74 +869,81 @@ namespace CaiYaStation
                 return;
             }
 
-            var culprits = string.IsNullOrWhiteSpace(receipt.LossCulprits) ? Receipts.FallbackCulprits : receipt.LossCulprits;
-            var kaomoji = string.IsNullOrWhiteSpace(receipt.LossKaomoji) ? Receipts.FallbackLossKaomoji : receipt.LossKaomoji;
-            var culpritsStyle = new GUIStyle(theme.Label) { fontSize = 18, fontStyle = FontStyle.Bold, wordWrap = true };
-            culpritsStyle.normal.textColor = new Color(1f, 0.66f, 0.60f, 1f);
-            var culpritsText = $"我们的人被{culprits}暴打了，货也弄丢了…{kaomoji}";
+            _receiptRenderer!.DrawLossNotice(receipt, logicalWidth, logicalHeight, ref _receiptLostScroll,
+                out _, out var lostCard, out var closeRect, out var fullReceiptRect, out var signRect);
 
-            var width = Mathf.Min(580, logicalWidth - 40);
-            var textHeight = culpritsStyle.CalcHeight(new GUIContent(culpritsText), width - 48f);
-            var listHeight = Mathf.Clamp(receipt.Lost.Count * 26f + 44f, 74f, 190f);
-            var height = 84f + textHeight + 10f + listHeight + 10f + 30f + 6f + 18f + 12f + 38f + 14f;
-            if (height > logicalHeight - 24f)
-            {
-                listHeight = Mathf.Max(52f, listHeight - (height - (logicalHeight - 24f)));
-                height = 84f + textHeight + 10f + listHeight + 10f + 30f + 6f + 18f + 12f + 38f + 14f;
-            }
-            var top = Mathf.Max(12f, (logicalHeight - height) * 0.5f);
-            var panel = new Rect((logicalWidth - width) * 0.5f, top, width, Mathf.Min(height, logicalHeight - 12f));
+            HandleTableScroll(lostCard, receipt.Lost.Count, ref _receiptLostScroll);
 
-            theme.DrawDim(logicalWidth, logicalHeight);
-            theme.DrawPanel(panel);
-            theme.DrawHeader(new Rect(panel.x, panel.y, panel.width, 64));
-            theme.DrawSolid(new Rect(panel.x, panel.y, 4, 64), theme.Danger);
-            GUI.Label(new Rect(panel.x + 20, panel.y + 8, 340, 32), "运送损失通知单", theme.Title);
-            var badge = new Rect(panel.x + 196, panel.y + 16, 92, 24);
-            theme.DrawPill(badge);
-            GUI.Label(badge, "丢件确认", _badgeDanger!);
-            GUI.Label(new Rect(panel.x + 20, panel.y + 40, panel.width - 120, 18),
-                "菜鸭驿站 · 配送事故备案　·　签收后不再追偿（雾）", theme.Subtitle);
-            if (GUI.Button(new Rect(panel.xMax - 54, panel.y + 14, 36, 34), "×", theme.CloseButton))
+            if (GUI.Button(closeRect, GUIContent.none, GUIStyle.none)
+                || GUI.Button(fullReceiptRect, GUIContent.none, GUIStyle.none)
+                || GUI.Button(signRect, GUIContent.none, GUIStyle.none))
             {
                 _lossNoticePending = false;
-                return;
             }
+        }
 
-            var cursor = panel.y + 80f;
-            GUI.Label(new Rect(panel.x + 20, cursor, panel.width - 40, textHeight), culpritsText, culpritsStyle);
-            cursor += textHeight + 10f;
+        /// <summary>
+        /// Wheel scrolling for one goods table. The hit area is the table's scrolling window, so a
+        /// wheel turn over either table only moves that table.
+        /// </summary>
+        private void HandleTableScroll(Rect card, int count, ref float scroll)
+        {
+            var view = ReceiptLayout.ListView(card);
+            var maxScroll = Mathf.Max(0f, count * ReceiptLayout.ListRowHeight - view.height);
+            scroll = Mathf.Clamp(scroll, 0f, maxScroll);
+            if (maxScroll <= 0f) return;
+            var current = Event.current;
+            if (current == null || current.type != EventType.ScrollWheel) return;
+            if (!view.Contains(current.mousePosition)) return;
+            scroll = Mathf.Clamp(scroll - Mathf.Sign(current.delta.y) * ReceiptLayout.ListRowHeight, 0f, maxScroll);
+            current.Use();
+        }
 
-            theme.DrawCard(new Rect(panel.x + 20, cursor, panel.width - 40, listHeight), false);
-            theme.DrawSolid(new Rect(panel.x + 20, cursor + 10, 3, 22), theme.Danger);
-            GUI.Label(new Rect(panel.x + 34, cursor + 8, panel.width - 80, 24),
-                "丢失物品　" + receipt.Lost.Count + " 件", theme.Section);
-            var rowY = cursor + 36f;
-            foreach (var line in receipt.Lost)
+        /// <summary>Native item icon for a receipt line. Never instantiates an item to get it.</summary>
+        private Sprite? ItemIcon(int typeId)
+        {
+            if (typeId <= 0) return null;
+            try
             {
-                if (rowY + 24 > cursor + listHeight - 6) break;
-                GUI.Label(new Rect(panel.x + 34, rowY, panel.width - 170, 20),
-                    line.Name + (line.StackCount > 1 ? " ×" + line.StackCount : ""), theme.RowName);
-                GUI.Label(new Rect(panel.xMax - 140, rowY, 118, 20), "-" + line.GoodsValue.ToString("N0"), theme.SmallRight);
-                rowY += 26f;
+                var meta = ItemAssetsCollection.GetMetaData(typeId);
+                if (meta.icon != null) return meta.icon;
             }
-            cursor += listHeight + 10f;
+            catch
+            {
+                // Fall through to the logged placeholder below.
+            }
+            if (_iconlessTypeIds.Add(typeId))
+                ModRuntimeLog?.Invoke("Receipt icon missing for typeId=" + typeId + "; using placeholder tile.");
+            return null;
+        }
 
-            GUI.Label(new Rect(panel.x + 20, cursor, 240, 30), "总计损失价值", theme.Label);
-            var lossStyle = new GUIStyle(theme.BigValue) { alignment = TextAnchor.MiddleRight };
-            lossStyle.normal.textColor = theme.Danger;
-            GUI.Label(new Rect(panel.xMax - 240, cursor - 2, 220, 32), "-" + receipt.LostValue.ToString("N0"), lossStyle);
-            cursor += 36f;
-
-            GUI.Label(new Rect(panel.x + 20, cursor, panel.width - 40, 18),
-                $"本次送达 {receipt.DeliveredStacks} 件 / 价值 {receipt.DeliveredValue:N0}　·　已扣运费 {receipt.Fee:N0}",
-                theme.Small);
-            cursor += 24f;
-
-            if (GUI.Button(new Rect(panel.x + 20, cursor, 150, 38), "直接看回执", theme.Button))
-                _lossNoticePending = false;
-            if (GUI.Button(new Rect(panel.xMax - 220, cursor, 200, 38), "签收（确认损失）", theme.ButtonPrimary))
-                _lossNoticePending = false;
+        /// <summary>
+        /// Localised name for a receipt material. The stored display name is a localisation key
+        /// (e.g. Item_BatteryR6), so it is resolved through the game's own table; a missing key
+        /// keeps the raw key, which still identifies the item.
+        /// </summary>
+        private string ItemName(int typeId)
+        {
+            if (typeId <= 0) return "物品";
+            try
+            {
+                var name = ItemAssetsCollection.GetMetaData(typeId).DisplayName;
+                if (string.IsNullOrWhiteSpace(name)) return "物品 " + typeId;
+                try
+                {
+                    var plain = SodaCraft.Localizations.LocalizationManager.ToPlainText(name);
+                    if (!string.IsNullOrWhiteSpace(plain)) return plain;
+                }
+                catch
+                {
+                    // Localisation table unavailable: the raw key still identifies the item.
+                }
+                return name;
+            }
+            catch
+            {
+                return "物品 " + typeId;
+            }
         }
 
         private void DrawConfirmation(UiTheme theme, float logicalWidth, float logicalHeight)
@@ -1018,7 +973,7 @@ namespace CaiYaStation
             var badge = new Rect(panel.x + 150, panel.y + 16, 90, 24);
             theme.DrawPill(badge);
             GUI.Label(badge, _confirmSingleStack ? "单件风险" : "高价值", theme.Badge);
-            GUI.Label(new Rect(panel.x + 20, panel.y + 40, panel.width - 40, 18),
+            GUI.Label(new Rect(panel.x + 20, panel.y + 40, panel.width - 40, 22),
                 "确认后立即扣除费用并随机结算丢件，不能撤销。", theme.Subtitle);
 
             var y = panel.y + 82f;
@@ -1041,9 +996,12 @@ namespace CaiYaStation
 
         private static void DrawConfirmKeyValue(UiTheme theme, Rect panel, ref float y, string key, string value)
         {
-            GUI.Label(new Rect(panel.x + 20, y, 220, 20), key, theme.Small);
-            GUI.Label(new Rect(panel.xMax - 220, y, 200, 20), value, theme.RowName);
-            y += 22;
+            var keyWidth = 220f;
+            var valueWidth = 220f;
+            GUI.Label(new Rect(panel.x + 20, y, keyWidth, 22), key, theme.Small);
+            GUI.Label(new Rect(panel.xMax - 20 - valueWidth, y, valueWidth, 22),
+                UiTheme.Fit(theme.RowName, value, valueWidth), theme.RowName);
+            y += 24;
         }
 
         // ------------------------------------------------------------------ helpers
@@ -1133,6 +1091,7 @@ namespace CaiYaStation
             _painter?.Dispose();
             _painter = null;
             _renderer = null;
+            _receiptRenderer = null;
             _theme?.Dispose();
             _theme = null;
         }

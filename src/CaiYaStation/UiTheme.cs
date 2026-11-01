@@ -10,20 +10,29 @@ namespace CaiYaStation
     /// </summary>
     internal sealed class UiTheme : IDisposable
     {
-        internal Color Background { get; } = new Color(0.031f, 0.051f, 0.039f, 1f);
-        internal Color Panel { get; } = new Color(0.051f, 0.082f, 0.069f, 0.995f);
-        internal Color Header { get; } = new Color(0.067f, 0.114f, 0.094f, 1f);
-        internal Color Card { get; } = new Color(0.063f, 0.106f, 0.086f, 1f);
-        internal Color Accent { get; } = new Color(0.373f, 0.890f, 0.631f, 1f);
-        internal Color AccentDeep { get; } = new Color(0.184f, 0.498f, 0.357f, 1f);
-        internal Color Text { get; } = new Color(0.925f, 0.965f, 0.941f, 1f);
-        internal Color TextDim { get; } = new Color(0.663f, 0.741f, 0.694f, 1f);
-        internal Color Good { get; } = new Color(0.388f, 0.847f, 0.580f, 1f);
-        internal Color Warning { get; } = new Color(0.941f, 0.706f, 0.361f, 1f);
-        internal Color Danger { get; } = new Color(0.949f, 0.439f, 0.373f, 1f);
-        internal Color Gold { get; } = new Color(1f, 0.820f, 0.400f, 1f);
-        internal Color Purple { get; } = new Color(0.753f, 0.545f, 1f, 1f);
-        internal Color Blue { get; } = new Color(0.455f, 0.663f, 1f, 1f);
+        internal Color Background { get; } = new Color(0.945f, 0.961f, 0.980f, 1f);
+        internal Color Panel { get; } = new Color(0.945f, 0.961f, 0.980f, 0.995f);
+        internal Color Header { get; } = new Color(0.902f, 0.925f, 0.953f, 1f);
+        internal Color Card { get; } = new Color(0.969f, 0.978f, 0.990f, 1f);
+        internal Color Accent { get; } = new Color(0.094f, 0.514f, 0.263f, 1f);
+        internal Color AccentDeep { get; } = new Color(0.196f, 0.416f, 0.310f, 1f);
+        internal Color Text { get; } = new Color(0.145f, 0.192f, 0.251f, 1f);
+        internal Color TextDim { get; } = new Color(0.333f, 0.384f, 0.447f, 1f);
+        internal Color TextFaint { get; } = new Color(0.478f, 0.525f, 0.584f, 1f);
+        internal Color PanelBorder { get; } = new Color(0.741f, 0.784f, 0.839f, 1f);
+        internal Color HeaderLine { get; } = new Color(0.788f, 0.824f, 0.867f, 1f);
+        internal Color CardBorder { get; } = new Color(0.812f, 0.847f, 0.890f, 1f);
+        internal Color CardRaised { get; } = new Color(0.898f, 0.925f, 0.957f, 1f);
+        internal Color Good { get; } = new Color(0.086f, 0.478f, 0.286f, 1f);
+        internal Color Warning { get; } = new Color(0.639f, 0.447f, 0.075f, 1f);
+        internal Color Danger { get; } = new Color(0.722f, 0.239f, 0.243f, 1f);
+        internal Color Gold { get; } = new Color(0.702f, 0.510f, 0.098f, 1f);
+        internal Color Purple { get; } = new Color(0.463f, 0.322f, 0.694f, 1f);
+        internal Color Blue { get; } = new Color(0.145f, 0.400f, 0.702f, 1f);
+        internal Color GoodSoft { get; } = new Color(0.878f, 0.945f, 0.910f, 1f);
+        internal Color WarningSoft { get; } = new Color(0.984f, 0.941f, 0.867f, 1f);
+        internal Color DangerSoft { get; } = new Color(0.961f, 0.906f, 0.910f, 1f);
+        internal Color BlueSoft { get; } = new Color(0.906f, 0.933f, 0.976f, 1f);
 
         private PanelPalette? _palette;
 
@@ -36,19 +45,30 @@ namespace CaiYaStation
                 var palette = PanelPalette.Default;
                 palette.Font = _font;
                 palette.Panel = Panel;
+                palette.PanelBorder = PanelBorder;
                 palette.Header = Header;
+                palette.HeaderLine = HeaderLine;
                 palette.Card = Card;
+                palette.CardBorder = CardBorder;
+                palette.CardRaised = CardRaised;
                 palette.Accent = Accent;
                 palette.AccentDim = AccentDeep;
                 palette.Text = Text;
                 palette.TextDim = TextDim;
+                palette.TextFaint = TextFaint;
                 palette.Good = Good;
                 palette.Warning = Warning;
                 palette.Danger = Danger;
                 palette.Gold = Gold;
                 palette.Purple = Purple;
                 palette.Blue = Blue;
+                palette.GoodSoft = GoodSoft;
+                palette.WarningSoft = WarningSoft;
+                palette.DangerSoft = DangerSoft;
+                palette.BlueSoft = BlueSoft;
                 palette.Primary = Accent;
+                palette.PrimaryHover = new Color(0.129f, 0.580f, 0.318f, 1f);
+                palette.OnPrimary = Color.white;
                 _palette = palette;
                 return palette;
             }
@@ -110,20 +130,20 @@ namespace CaiYaStation
             }
 
             _white = Solid(Color.white, "CaiYaStation.White");
-            _dim = Solid(new Color(0f, 0f, 0f, 0.55f), "CaiYaStation.Dim");
-            _panel = Rounded(72, 16, Panel, new Color(0.153f, 0.271f, 0.196f, 1f), 2, "CaiYaStation.Panel");
-            _header = Rounded(48, 14, Header, new Color(0.165f, 0.302f, 0.224f, 0.8f), 1, "CaiYaStation.Header");
-            _card = Rounded(48, 12, Card, new Color(0.122f, 0.204f, 0.169f, 1f), 1, "CaiYaStation.Card");
-            _cardSelected = Rounded(48, 12, new Color(0.078f, 0.129f, 0.106f, 1f), Accent, 1, "CaiYaStation.CardSelected");
-            _rowHover = Rounded(32, 8, new Color(1f, 1f, 1f, 0.055f), null, 0, "CaiYaStation.RowHover");
-            _rowSelected = Rounded(32, 8, new Color(0.32f, 0.90f, 0.58f, 0.14f), null, 0, "CaiYaStation.RowSelected");
-            _button = Rounded(40, 10, new Color(0.10f, 0.15f, 0.13f, 1f), new Color(0.18f, 0.30f, 0.24f, 1f), 1, "CaiYaStation.Button");
-            _buttonHover = Rounded(40, 10, new Color(0.14f, 0.22f, 0.18f, 1f), new Color(0.30f, 0.55f, 0.40f, 1f), 1, "CaiYaStation.ButtonHover");
-            _buttonActive = Rounded(40, 10, new Color(0.30f, 0.86f, 0.55f, 1f), new Color(0.55f, 1f, 0.72f, 1f), 1, "CaiYaStation.ButtonActive");
-            _buttonDisabled = Rounded(40, 10, new Color(0.08f, 0.10f, 0.09f, 1f), new Color(0.14f, 0.18f, 0.16f, 1f), 1, "CaiYaStation.ButtonDisabled");
-            _pill = Rounded(36, 16, new Color(0.04f, 0.07f, 0.06f, 0.92f), new Color(0.14f, 0.30f, 0.22f, 0.9f), 1, "CaiYaStation.Pill");
+            _dim = Solid(new Color(0.176f, 0.216f, 0.278f, 0.42f), "CaiYaStation.Dim");
+            _panel = Rounded(72, 16, Panel, PanelBorder, 2, "CaiYaStation.Panel");
+            _header = Rounded(48, 14, Header, HeaderLine, 1, "CaiYaStation.Header");
+            _card = Rounded(48, 12, Card, CardBorder, 1, "CaiYaStation.Card");
+            _cardSelected = Rounded(48, 12, CardRaised, Accent, 1, "CaiYaStation.CardSelected");
+            _rowHover = Rounded(32, 8, new Color(0.145f, 0.192f, 0.251f, 0.05f), null, 0, "CaiYaStation.RowHover");
+            _rowSelected = Rounded(32, 8, new Color(0.094f, 0.514f, 0.263f, 0.13f), null, 0, "CaiYaStation.RowSelected");
+            _button = Rounded(40, 10, new Color(0.957f, 0.967f, 0.980f, 1f), new Color(0.780f, 0.816f, 0.863f, 1f), 1, "CaiYaStation.Button");
+            _buttonHover = Rounded(40, 10, new Color(0.918f, 0.941f, 0.969f, 1f), new Color(0.639f, 0.702f, 0.780f, 1f), 1, "CaiYaStation.ButtonHover");
+            _buttonActive = Rounded(40, 10, new Color(0.094f, 0.514f, 0.263f, 1f), new Color(0.059f, 0.404f, 0.204f, 1f), 1, "CaiYaStation.ButtonActive");
+            _buttonDisabled = Rounded(40, 10, new Color(0.925f, 0.933f, 0.945f, 1f), new Color(0.851f, 0.871f, 0.890f, 1f), 1, "CaiYaStation.ButtonDisabled");
+            _pill = Rounded(36, 16, new Color(0.969f, 0.980f, 0.992f, 0.96f), new Color(0.796f, 0.831f, 0.878f, 0.95f), 1, "CaiYaStation.Pill");
             _check = Rounded(24, 6, Accent, null, 0, "CaiYaStation.Check");
-            _riskTrack = Rounded(24, 8, new Color(0.05f, 0.07f, 0.065f, 1f), new Color(0.12f, 0.18f, 0.15f, 1f), 1, "CaiYaStation.RiskTrack");
+            _riskTrack = Rounded(24, 8, new Color(0.902f, 0.922f, 0.945f, 1f), new Color(0.800f, 0.831f, 0.871f, 1f), 1, "CaiYaStation.RiskTrack");
 
             Title = Style(26, FontStyle.Bold, Text, TextAnchor.MiddleLeft);
             Subtitle = Style(13, FontStyle.Normal, TextDim, TextAnchor.MiddleLeft);
@@ -155,7 +175,7 @@ namespace CaiYaStation
             ButtonPrimary.normal.background = _buttonActive;
             ButtonPrimary.hover.background = _buttonActive;
             ButtonPrimary.active.background = _buttonActive;
-            ButtonPrimary.normal.textColor = new Color(0.02f, 0.10f, 0.06f, 1f);
+            ButtonPrimary.normal.textColor = new Color(1f, 1f, 1f, 1f);
             ButtonPrimary.hover.textColor = ButtonPrimary.normal.textColor;
             ButtonPrimary.active.textColor = ButtonPrimary.normal.textColor;
             ButtonPrimary.fontStyle = FontStyle.Bold;
@@ -198,10 +218,36 @@ namespace CaiYaStation
                 fontStyle = weight,
                 alignment = anchor,
                 wordWrap = false,
-                clipping = TextClipping.Clip
+                // The game's own label style carries padding, and a CJK line box is taller than
+                // the nominal font size (YaHei at 12px measures ~17px). With Clip plus inherited
+                // padding every short rect sliced the top and bottom off the glyphs in game, while
+                // the offline preview looked fine because it measures text itself. Zero the
+                // padding and let a slightly short rect draw the text outside its own bounds.
+                padding = new RectOffset(0, 0, 0, 0),
+                margin = new RectOffset(0, 0, 0, 0),
+                clipping = TextClipping.Overflow
             };
             style.normal.textColor = color;
             return style;
+        }
+
+        /// <summary>
+        /// Trims a label to the width it is allowed to occupy. Styles now draw with Overflow so a
+        /// short rect can no longer slice a glyph, which also means a long item name would run into
+        /// the number column next to it; this keeps every cell inside its own width.
+        /// </summary>
+        internal static string Fit(GUIStyle style, string text, float width)
+        {
+            if (string.IsNullOrEmpty(text) || width <= 0f) return text ?? string.Empty;
+            if (style.CalcSize(new GUIContent(text)).x <= width) return text;
+            const string ellipsis = "…";
+            var trimmed = text;
+            while (trimmed.Length > 1)
+            {
+                trimmed = trimmed.Substring(0, trimmed.Length - 1);
+                if (style.CalcSize(new GUIContent(trimmed + ellipsis)).x <= width) return trimmed + ellipsis;
+            }
+            return ellipsis;
         }
 
         private static GUIStyle BlockStyle(Texture2D normal, Texture2D hover, Texture2D active, Color text, int size)
@@ -278,26 +324,26 @@ namespace CaiYaStation
             {
                 GUI.DrawTexture(rect, _check, ScaleMode.StretchToFill, true);
                 var previous = GUI.color;
-                GUI.color = new Color(0.02f, 0.12f, 0.07f, 1f);
+                GUI.color = new Color(1f, 1f, 1f, 1f);
                 GUI.Label(rect, "✓", Badge);
                 GUI.color = previous;
                 return;
             }
             var previousColor = GUI.color;
-            GUI.color = new Color(0.45f, 0.55f, 0.50f, 1f);
+            GUI.color = new Color(0.647f, 0.694f, 0.749f, 1f);
             GUI.DrawTexture(rect, _white, ScaleMode.StretchToFill, true);
-            GUI.color = new Color(0.06f, 0.09f, 0.08f, 1f);
+            GUI.color = new Color(0.969f, 0.980f, 0.992f, 1f);
             GUI.DrawTexture(new Rect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2), _white);
             GUI.color = previousColor;
         }
 
         internal static Color QualityColor(int quality)
         {
-            if (quality >= 9) return new Color(1f, 0.80f, 0.30f, 1f);
-            if (quality >= 7) return new Color(0.78f, 0.56f, 1f, 1f);
-            if (quality >= 5) return new Color(0.48f, 0.72f, 1f, 1f);
-            if (quality >= 3) return new Color(0.42f, 0.90f, 0.62f, 1f);
-            return new Color(0.66f, 0.76f, 0.70f, 1f);
+            if (quality >= 9) return new Color(0.702f, 0.478f, 0.055f, 1f);
+            if (quality >= 7) return new Color(0.478f, 0.290f, 0.702f, 1f);
+            if (quality >= 5) return new Color(0.129f, 0.380f, 0.722f, 1f);
+            if (quality >= 3) return new Color(0.086f, 0.478f, 0.286f, 1f);
+            return new Color(0.478f, 0.525f, 0.584f, 1f);
         }
 
         internal Texture2D? BackgroundForDisabled => _buttonDisabled;

@@ -3,7 +3,7 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>CaiYaStation</AssemblyName>
     <RootNamespace>CaiYaStation</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.2</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -38,6 +38,11 @@
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>$(GameManagedPath)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Texture2D.LoadImage lives in its own module; the map marker is decoded from marker.png. -->
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(GameManagedPath)\UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.PhysicsModule">
@@ -75,6 +80,11 @@
     </Reference>
     <Reference Include="Drawing">
       <HintPath>$(GameManagedPath)\Drawing.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Item meta data stores localisation keys (Item_BatteryR6); the receipt sheet shows them as text. -->
+    <Reference Include="SodaLocalization">
+      <HintPath>$(GameManagedPath)\SodaLocalization.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

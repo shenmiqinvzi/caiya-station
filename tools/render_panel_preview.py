@@ -160,7 +160,8 @@ def draw_command(image, cmd, scale):
 
 def render_image(document, scale=1):
     width, height = document["size"]
-    image = Image.new("RGBA", (int(width * scale), int(height * scale)), (5, 8, 6, 255))
+    # The backdrop is painted by the renderer itself; this only shows behind a transparent clear.
+    image = Image.new("RGBA", (int(width * scale), int(height * scale)), (206, 217, 232, 255))
     for command in document["commands"]:
         draw_command(image, command, scale)
     return image
@@ -168,7 +169,10 @@ def render_image(document, scale=1):
 
 def main():
     targets = sys.argv[1:]
-    sources = sorted(OUT.glob("panel-*.json")) if not targets else [Path(t) for t in targets]
+    if targets:
+        sources = [Path(t) for t in targets]
+    else:
+        sources = sorted(OUT.glob("panel-*.json")) + sorted(OUT.glob("receipt-*.json"))
     for source in sources:
         name = source.stem
         document = json.loads(source.read_text(encoding="utf-8"))

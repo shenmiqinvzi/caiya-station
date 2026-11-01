@@ -36,50 +36,57 @@ namespace CaiYaStation
     /// </summary>
     internal sealed class PanelPalette
     {
-        internal Color Backdrop = new Color(0f, 0f, 0f, 0.60f);
-        internal Color Shadow = new Color(0f, 0f, 0f, 0.45f);
-        internal Color Panel = new Color(0.051f, 0.082f, 0.069f, 0.995f);
-        internal Color PanelBorder = new Color(0.153f, 0.271f, 0.196f, 1f);
-        internal Color Header = new Color(0.067f, 0.114f, 0.094f, 1f);
-        internal Color HeaderLine = new Color(0.165f, 0.302f, 0.224f, 1f);
-        internal Color Card = new Color(0.063f, 0.106f, 0.086f, 1f);
-        internal Color CardBorder = new Color(0.122f, 0.204f, 0.169f, 1f);
-        internal Color CardRaised = new Color(0.078f, 0.129f, 0.106f, 1f);
-        internal Color Accent = new Color(0.373f, 0.890f, 0.631f, 1f);
-        internal Color AccentDim = new Color(0.184f, 0.498f, 0.357f, 1f);
-        internal Color Text = new Color(0.925f, 0.965f, 0.941f, 1f);
-        internal Color TextDim = new Color(0.663f, 0.741f, 0.694f, 1f);
-        internal Color TextFaint = new Color(0.478f, 0.565f, 0.522f, 1f);
-        internal Color Good = new Color(0.388f, 0.847f, 0.580f, 1f);
-        internal Color Warning = new Color(0.941f, 0.706f, 0.361f, 1f);
-        internal Color Danger = new Color(0.949f, 0.439f, 0.373f, 1f);
-        internal Color Gold = new Color(1f, 0.820f, 0.400f, 1f);
-        internal Color Purple = new Color(0.753f, 0.545f, 1f, 1f);
-        internal Color Blue = new Color(0.455f, 0.663f, 1f, 1f);
-        internal Color TrackBackground = new Color(0.039f, 0.067f, 0.055f, 1f);
-        internal Color TrackBorder = new Color(0.114f, 0.188f, 0.157f, 1f);
-        internal Color RowHover = new Color(1f, 1f, 1f, 0.045f);
-        internal Color RowSelected = new Color(0.373f, 0.890f, 0.631f, 0.15f);
-        internal Color Button = new Color(0.086f, 0.141f, 0.114f, 1f);
-        internal Color ButtonBorder = new Color(0.149f, 0.239f, 0.188f, 1f);
-        internal Color ButtonHover = new Color(0.110f, 0.184f, 0.149f, 1f);
-        internal Color ButtonHoverBorder = new Color(0.200f, 0.345f, 0.271f, 1f);
-        internal Color ButtonDisabled = new Color(0.055f, 0.090f, 0.075f, 1f);
-        internal Color ButtonDisabledBorder = new Color(0.110f, 0.165f, 0.137f, 1f);
-        internal Color Primary = new Color(0.373f, 0.890f, 0.631f, 1f);
-        internal Color PrimaryHover = new Color(0.463f, 0.941f, 0.694f, 1f);
-        internal Color OnPrimary = new Color(0.024f, 0.098f, 0.063f, 1f);
+        // Light "cold white / mint" theme: pale blue-grey surfaces, deep grey-blue ink and a
+        // deep-green primary so one palette drives the shipping panel, the receipt and the
+        // loss notice instead of a dark panel next to a light sheet.
+        internal Color Backdrop = new Color(0.478f, 0.541f, 0.616f, 0.55f);
+        internal Color Shadow = new Color(0.290f, 0.353f, 0.435f, 0.30f);
+        internal Color Panel = new Color(0.945f, 0.961f, 0.980f, 0.995f);
+        internal Color PanelBorder = new Color(0.741f, 0.784f, 0.839f, 1f);
+        internal Color Header = new Color(0.902f, 0.925f, 0.953f, 1f);
+        internal Color HeaderLine = new Color(0.788f, 0.824f, 0.867f, 1f);
+        internal Color Card = new Color(0.969f, 0.978f, 0.990f, 1f);
+        internal Color CardBorder = new Color(0.812f, 0.847f, 0.890f, 1f);
+        internal Color CardRaised = new Color(0.898f, 0.925f, 0.957f, 1f);
+        internal Color Accent = new Color(0.094f, 0.514f, 0.263f, 1f);
+        internal Color AccentDim = new Color(0.196f, 0.416f, 0.310f, 1f);
+        internal Color Text = new Color(0.145f, 0.192f, 0.251f, 1f);
+        internal Color TextDim = new Color(0.333f, 0.384f, 0.447f, 1f);
+        internal Color TextFaint = new Color(0.478f, 0.525f, 0.584f, 1f);
+        internal Color Good = new Color(0.086f, 0.478f, 0.286f, 1f);
+        internal Color Warning = new Color(0.639f, 0.447f, 0.075f, 1f);
+        internal Color Danger = new Color(0.722f, 0.239f, 0.243f, 1f);
+        internal Color Gold = new Color(0.702f, 0.510f, 0.098f, 1f);
+        internal Color Purple = new Color(0.463f, 0.322f, 0.694f, 1f);
+        internal Color Blue = new Color(0.145f, 0.400f, 0.702f, 1f);
+        internal Color TrackBackground = new Color(0.902f, 0.922f, 0.945f, 1f);
+        internal Color TrackBorder = new Color(0.800f, 0.831f, 0.871f, 1f);
+        internal Color RowHover = new Color(0.145f, 0.192f, 0.251f, 0.05f);
+        internal Color RowSelected = new Color(0.094f, 0.514f, 0.263f, 0.14f);
+        internal Color Button = new Color(0.957f, 0.967f, 0.980f, 1f);
+        internal Color ButtonBorder = new Color(0.780f, 0.816f, 0.863f, 1f);
+        internal Color ButtonHover = new Color(0.918f, 0.941f, 0.969f, 1f);
+        internal Color ButtonHoverBorder = new Color(0.639f, 0.702f, 0.780f, 1f);
+        internal Color ButtonDisabled = new Color(0.925f, 0.933f, 0.945f, 1f);
+        internal Color ButtonDisabledBorder = new Color(0.851f, 0.871f, 0.890f, 1f);
+        internal Color Primary = new Color(0.094f, 0.514f, 0.263f, 1f);
+        internal Color PrimaryHover = new Color(0.129f, 0.580f, 0.318f, 1f);
+        internal Color OnPrimary = new Color(1f, 1f, 1f, 1f);
+        internal Color GoodSoft = new Color(0.878f, 0.945f, 0.910f, 1f);
+        internal Color WarningSoft = new Color(0.984f, 0.941f, 0.867f, 1f);
+        internal Color DangerSoft = new Color(0.961f, 0.906f, 0.910f, 1f);
+        internal Color BlueSoft = new Color(0.906f, 0.933f, 0.976f, 1f);
         internal Font? Font;
 
         internal static PanelPalette Default => new PanelPalette();
 
         internal static Color Quality(int quality)
         {
-            if (quality >= 9) return new Color(1f, 0.82f, 0.40f, 1f);
-            if (quality >= 7) return new Color(0.75f, 0.55f, 1f, 1f);
-            if (quality >= 5) return new Color(0.45f, 0.66f, 1f, 1f);
-            if (quality >= 3) return new Color(0.39f, 0.85f, 0.58f, 1f);
-            return new Color(0.48f, 0.57f, 0.53f, 1f);
+            if (quality >= 9) return new Color(0.702f, 0.478f, 0.055f, 1f);
+            if (quality >= 7) return new Color(0.478f, 0.290f, 0.702f, 1f);
+            if (quality >= 5) return new Color(0.129f, 0.380f, 0.722f, 1f);
+            if (quality >= 3) return new Color(0.086f, 0.478f, 0.286f, 1f);
+            return new Color(0.478f, 0.525f, 0.584f, 1f);
         }
 
         internal static Color Alpha(Color color, float alpha)
@@ -153,6 +160,29 @@ namespace CaiYaStation
         void BeginClip(Rect rect);
         void EndClip();
         float Measure(string text, float width, PaintText role);
+        /// <summary>Width the text needs on one line, for trimming it into a fixed cell.</summary>
+        float Width(string text, PaintText role);
+    }
+
+    /// <summary>
+    /// Text that has to live inside a fixed cell. A style can no longer clip vertically, so a
+    /// long item name would otherwise run straight over the number column beside it.
+    /// </summary>
+    internal static class PanelText
+    {
+        internal static string Fit(IPanelPainter painter, string text, float width, PaintText role)
+        {
+            if (string.IsNullOrEmpty(text) || width <= 0f) return text ?? string.Empty;
+            if (painter.Width(text, role) <= width) return text;
+            const string ellipsis = "…";
+            var trimmed = text;
+            while (trimmed.Length > 1)
+            {
+                trimmed = trimmed.Substring(0, trimmed.Length - 1);
+                if (painter.Width(trimmed + ellipsis, role) <= width) return trimmed + ellipsis;
+            }
+            return ellipsis;
+        }
     }
 
     internal static class PaintGeometry
@@ -252,7 +282,10 @@ namespace CaiYaStation
                     if (texture != null)
                     {
                         var source = sprite.textureRect;
-                        GUI.DrawTextureWithTexCoords(Offset(rect), texture,
+                        // Fit inside the slot instead of stretching into it: the station marker is
+                        // a square sticker today, but item icons and any future art are not.
+                        var fit = FitInside(rect, source.width, source.height);
+                        GUI.DrawTextureWithTexCoords(Offset(fit), texture,
                             new Rect(source.x / texture.width, source.y / texture.height,
                                 source.width / texture.width, source.height / texture.height), true);
                         return;
@@ -271,9 +304,14 @@ namespace CaiYaStation
         public void BeginClip(Rect rect)
         {
             _offsets.Add(_offset);
+            // rect is always an absolute screen rect, so the group origin is rect itself and
+            // everything drawn inside must subtract rect.position — not the accumulated offset.
+            // Adding instead of assigning here made a nested clip (rail card -> manifest view)
+            // subtract the parent's position twice, which pushed every manifest row out of the
+            // group and left the "待运送货物" list looking empty on screen.
             var local = new Rect(rect.x - _offset.x, rect.y - _offset.y, Mathf.Max(0f, rect.width), Mathf.Max(0f, rect.height));
             GUI.BeginGroup(local);
-            _offset += rect.position;
+            _offset = rect.position;
         }
 
         public void EndClip()
@@ -291,6 +329,12 @@ namespace CaiYaStation
             return style.CalcHeight(new GUIContent(text), Mathf.Max(16f, width));
         }
 
+        public float Width(string text, PaintText role)
+        {
+            if (string.IsNullOrEmpty(text)) return 0f;
+            return StyleFor(role, TextAnchor.MiddleLeft, null, false).CalcSize(new GUIContent(text)).x;
+        }
+
         private GUIStyle StyleFor(PaintText role, TextAnchor anchor, Color? color, bool wrap)
         {
             var key = new StyleKey(role, anchor, color ?? Color.clear, color.HasValue, wrap);
@@ -303,7 +347,12 @@ namespace CaiYaStation
                 alignment = anchor,
                 wordWrap = wrap,
                 richText = false,
-                clipping = wrap ? TextClipping.Clip : TextClipping.Clip,
+                // Wrapped rects are sized by CalcHeight, so Clip is safe there. Single-line rects
+                // are laid out on a nominal height while a CJK line box is taller than that
+                // (YaHei at 12px measures ~17px), and Clip sliced the top and bottom of the glyphs
+                // in game. Overflow lets the glyphs finish drawing; PanelText.Fit keeps them inside
+                // their column horizontally.
+                clipping = wrap ? TextClipping.Clip : TextClipping.Overflow,
                 padding = new RectOffset(0, 0, 0, 0),
                 margin = new RectOffset(0, 0, 0, 0)
             };
@@ -315,6 +364,20 @@ namespace CaiYaStation
         }
 
         private Rect Offset(Rect rect) => new Rect(rect.x - _offset.x, rect.y - _offset.y, rect.width, rect.height);
+
+        /// <summary>
+        /// Largest rect with the sprite's aspect ratio that fits inside <paramref name="slot"/>,
+        /// centred. Keeps non-square art from being squashed into a square header tile.
+        /// </summary>
+        private static Rect FitInside(Rect slot, float width, float height)
+        {
+            if (width <= 0f || height <= 0f) return slot;
+            var scale = Mathf.Min(slot.width / width, slot.height / height);
+            var drawWidth = width * scale;
+            var drawHeight = height * scale;
+            return new Rect(slot.x + (slot.width - drawWidth) * 0.5f,
+                slot.y + (slot.height - drawHeight) * 0.5f, drawWidth, drawHeight);
+        }
 
         private static Texture2D MakeSolid(Color color, string name)
         {

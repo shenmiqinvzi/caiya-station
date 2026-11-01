@@ -30,11 +30,11 @@ namespace CaiYaStation
         internal const float SnapTolerance = 12f;
 
         /// <summary>
-        /// Path calculations one placement sweep may spend. Each one blocks the main thread
-        /// until the graph answers, and a sweep would otherwise ask for up to a few hundred, so
-        /// the budget bounds the stall a scene load can take. Geometric checks run first and
-        /// reject most points for free, so in practice the allowance is rarely reached; when it
-        /// is, the reject summary in the log names it as <c>budget-spent</c>.
+        /// Path calculations one budget window may spend. Each one blocks the main thread until
+        /// the graph answers, and a placement attempt would otherwise ask for up to a few
+        /// hundred, so the budget bounds the stall a scene load can take. Geometric checks run
+        /// first and reject most points for free, so in practice the allowance is rarely
+        /// reached; when it is, the reject summary in the log names it as <c>budget-spent</c>.
         /// </summary>
         internal const int PlacementBudget = 64;
 
@@ -56,7 +56,11 @@ namespace CaiYaStation
 
         private static int _spent;
 
-        /// <summary>Starts a fresh sweep so the budget applies per placement attempt.</summary>
+        /// <summary>
+        /// Starts a fresh budget window. Called once per relaxed pass of a placement attempt:
+        /// pass 0 searches the designed extraction band, and a sweep that spent its allowance
+        /// there must not starve the relaxed passes that follow.
+        /// </summary>
         internal static void ResetBudget()
         {
             _spent = 0;

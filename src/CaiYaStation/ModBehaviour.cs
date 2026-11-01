@@ -103,7 +103,7 @@ namespace CaiYaStation
                 _store.Load();
                 _runtime = new ShipmentRuntime(_config, _store, Log);
                 _panel = new ShipmentPanel { ModRuntimeLog = Log };
-                _world = new StationWorld(_config, _layout, _runtime, _store, Log);
+                _world = new StationWorld(_config, _layout, _runtime, _store, Log, info.path);
                 _world.AttachPanel(_panel);
                 _panel.Attach(_world);
                 try

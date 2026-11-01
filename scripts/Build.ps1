@@ -29,6 +29,8 @@ $files = @(
     @{ Source = (Join-Path $buildOutput 'CaiYaStation.pdb'); Name = 'CaiYaStation.pdb' },
     @{ Source = (Join-Path $projectRoot 'mod\info.ini'); Name = 'info.ini' },
     @{ Source = (Join-Path $projectRoot 'mod\preview.png'); Name = 'preview.png' },
+    @{ Source = (Join-Path $projectRoot 'mod\marker.png'); Name = 'marker.png' },
+    @{ Source = (Join-Path $projectRoot 'mod\marker-map.png'); Name = 'marker-map.png' },
     @{ Source = (Join-Path $projectRoot 'mod\config.json'); Name = 'config.json' },
     @{ Source = (Join-Path $projectRoot 'mod\station-layout.json'); Name = 'station-layout.json' },
     @{ Source = (Join-Path $projectRoot 'mod\README.txt'); Name = 'README.txt' },

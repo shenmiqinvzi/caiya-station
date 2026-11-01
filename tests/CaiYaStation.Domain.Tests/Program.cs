@@ -111,6 +111,35 @@ Add("quest name prefix is protected", () => Assert.Equal("任务/钥匙/唯一�
 Add("deliver box prefix is protected", () => Assert.Equal("任务/钥匙/唯一物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, name: "DeliverBox_2102"), protection)));
 Add("zero-value ordinary item stays selectable", () => Assert.True(ItemEligibility.IsEligible(Item(10, 0), protection)));
 
+// ---------------------------------------------------------------- weapons
+// The game tags guns "Continer" because they take attachments. A rifle is not a backpack, so a
+// wielded item (or anything with a caliber) skips the container rule while real containers still
+// hit it, and quest/key/cash protection keeps applying to weapons as well.
+Add("wielded weapon is not refused as a container", () =>
+    Assert.Equal(null, ItemEligibility.BlockReason(Item(300, 3956, handHeld: true, tags: "Continer"), protection)));
+Add("caliber alone marks a weapon", () =>
+    Assert.Equal(null, ItemEligibility.BlockReason(Item(301, 3956, caliber: "5.56", tags: "Continer"), protection)));
+Add("weapon with a container inventory still ships", () =>
+    Assert.Equal(null, ItemEligibility.BlockReason(Item(302, 3956, container: true, handHeld: true), protection)));
+Add("backpack is still refused", () =>
+    Assert.Equal("容器类物品不可寄送", ItemEligibility.BlockReason(Item(303, 200, container: true, tags: "Backpack"), protection)));
+Add("non-wielded container tag is still refused", () =>
+    Assert.Equal("容器类物品不可寄送", ItemEligibility.BlockReason(Item(304, 200, tags: "Continer"), protection)));
+Add("quest weapon stays protected", () =>
+    Assert.Equal("任务/钥匙/唯一物品不可寄送",
+        ItemEligibility.BlockReason(Item(305, 3956, handHeld: true, tags: new[] { "Continer", "Quest" }), protection)));
+Add("equipped weapon stays protected", () =>
+    Assert.Equal("装备中的物品不可寄送",
+        ItemEligibility.BlockReason(Item(306, 3956, equipped: true, handHeld: true), protection)));
+Add("weapons can be refused again by config", () =>
+{
+    var strict = new ProtectionRules { AllowWeapons = false };
+    Assert.Equal("容器类物品不可寄送",
+        ItemEligibility.BlockReason(Item(307, 3956, handHeld: true, tags: "Continer"), strict));
+});
+Add("ammo with a caliber still ships", () =>
+    Assert.Equal(null, ItemEligibility.BlockReason(Item(308, 20, count: 30, caliber: "5.56"), protection)));
+
 // ---------------------------------------------------------------- loss planning
 Add("single stack can be lost entirely at the shown rate", () =>
 {
@@ -571,6 +600,8 @@ static ItemFacts Item(
     bool equipped = false,
     bool canDrop = true,
     bool container = false,
+    bool handHeld = false,
+    string caliber = "",
     string name = "测试物品",
     params string[] tags) => new ItemFacts
 {
@@ -583,6 +614,8 @@ static ItemFacts Item(
     IsEquipped = equipped,
     CanDrop = canDrop,
     HasContainerInventory = container,
+    HasHandHeldAgent = handHeld,
+    Caliber = caliber,
     Tags = tags
 };
 

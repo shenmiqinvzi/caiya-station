@@ -1,6 +1,7 @@
 bin/
 obj/
 build/
+.dotnet/
 .dotnet-home/
 .nuget/
 .pip-cache/
@@ -13,6 +14,7 @@ artifacts/inspection/*.json
 artifacts/inspection/*.txt
 artifacts/
 logs/
+.tmp-icon/
 *.user
 .vs/
 .idea/

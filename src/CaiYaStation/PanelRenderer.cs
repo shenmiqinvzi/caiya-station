@@ -15,7 +15,11 @@ namespace CaiYaStation
     {
         private readonly PanelPalette _c;
         private readonly IPanelPainter _p;
-        private readonly Dictionary<int, float> _measuredTooltips = new Dictionary<int, float>();
+        // Keyed by (instance id, available room in quarter-pixels): the same item can be described
+        // by a taller or shorter band when the panel is resized, and a stale measurement would put
+        // the ellipsis in the wrong place.
+        private readonly Dictionary<(int InstanceId, int Room), TooltipBody> _measuredTooltips =
+            new Dictionary<(int InstanceId, int Room), TooltipBody>();
 
         internal PanelRenderer(PanelPalette palette, IPanelPainter painter)
         {
@@ -57,14 +61,17 @@ namespace CaiYaStation
             _p.Icon(new Rect(l.HeaderIcon.x + 4f, l.HeaderIcon.y + 4f, 32f, 32f), v.StationIcon, "菜",
                 PaintText.MetricValue, _c.Accent);
 
-            _p.Text(l.HeaderTitle, v.Title, PaintText.Title);
+            _p.Text(l.HeaderTitle, PanelText.Fit(_p, v.Title, l.HeaderTitle.width, PaintText.Title), PaintText.Title);
 
             var badgeColor = v.StationOpen ? _c.Accent : _c.Danger;
             _p.Rounded(l.HeaderBadge, 11f, PanelPalette.Alpha(_c.CardRaised, 0.95f),
                 PanelPalette.Alpha(badgeColor, 0.35f), 1f);
-            _p.Text(l.HeaderBadge, v.StatusLabel, PaintText.Badge, TextAnchor.MiddleCenter, badgeColor);
+            _p.Text(l.HeaderBadge,
+                PanelText.Fit(_p, v.StatusLabel, l.HeaderBadge.width - 8f, PaintText.Badge),
+                PaintText.Badge, TextAnchor.MiddleCenter, badgeColor);
 
-            _p.Text(l.HeaderSubtitle, v.Subtitle, PaintText.Subtitle);
+            _p.Text(l.HeaderSubtitle,
+                PanelText.Fit(_p, v.Subtitle, l.HeaderSubtitle.width, PaintText.Subtitle), PaintText.Subtitle);
 
             var closeHover = l.HeaderClose.Contains(mouse);
             _p.Rounded(l.HeaderClose, 9f, closeHover ? _c.ButtonHover : _c.Card,
@@ -79,7 +86,9 @@ namespace CaiYaStation
         private void DrawList(ShipmentView v, PanelLayout l, Vector2 mouse, PanelRenderResult r)
         {
             _p.Text(l.ListTitle, "背包物品", PaintText.Section);
-            _p.Text(l.ListCapacity, v.CapacityText, PaintText.Small, TextAnchor.MiddleRight);
+            _p.Text(l.ListCapacity,
+                PanelText.Fit(_p, v.CapacityText, l.ListCapacity.width, PaintText.Small),
+                PaintText.Small, TextAnchor.MiddleRight);
 
             _p.Rounded(l.ListCard, 14f, _c.Card, _c.CardBorder, 1f);
             DrawColumnHeader(l);
@@ -117,7 +126,7 @@ namespace CaiYaStation
         private void DrawColumnHeader(PanelLayout l)
         {
             var cells = Cells(l.ListColumns);
-            _p.Text(cells.Name, "名称", PaintText.Tiny);
+            _p.Text(cells.Name, PanelText.Fit(_p, "名称", cells.Name.width, PaintText.Tiny), PaintText.Tiny);
             _p.Text(cells.Count, "数量", PaintText.Tiny, TextAnchor.MiddleRight);
             _p.Text(cells.Unit, "单件", PaintText.Tiny, TextAnchor.MiddleRight);
             _p.Text(cells.Total, "总价", PaintText.Tiny, TextAnchor.MiddleRight);
@@ -147,26 +156,29 @@ namespace CaiYaStation
 
             var cells = Cells(rect);
             var nameColor = row.Eligible ? _c.Text : _c.TextFaint;
+            var nameText = PanelText.Fit(_p, row.Name, cells.Name.width, PaintText.RowName);
             if (row.Eligible)
             {
-                _p.Text(new Rect(cells.Name.x, rect.y + 8f, cells.Name.width, 20f), row.Name, PaintText.RowName,
+                _p.Text(new Rect(cells.Name.x, rect.y + 8f, cells.Name.width, 22f), nameText, PaintText.RowName,
                     TextAnchor.MiddleLeft, nameColor);
             }
             else
             {
-                _p.Text(new Rect(cells.Name.x, rect.y + 5f, cells.Name.width, 18f), row.Name, PaintText.RowName,
+                _p.Text(new Rect(cells.Name.x, rect.y + 4f, cells.Name.width, 20f), nameText, PaintText.RowName,
                     TextAnchor.MiddleLeft, nameColor);
-                _p.Text(new Rect(cells.Name.x, rect.y + 22f, cells.Name.width, 13f), "不可寄 · " + row.BlockedReason,
+                _p.Text(new Rect(cells.Name.x, rect.y + 22f, cells.Name.width, 16f),
+                    PanelText.Fit(_p, "不可寄 · " + row.BlockedReason, cells.Name.width, PaintText.Tiny),
                     PaintText.Tiny, TextAnchor.MiddleLeft, _c.Danger);
             }
 
-            _p.Text(new Rect(cells.Count.x, rect.y + 8f, cells.Count.width, 20f), row.CountText, PaintText.RowValue,
-                TextAnchor.MiddleRight, row.Eligible ? _c.TextDim : _c.TextFaint);
-            _p.Text(new Rect(cells.Unit.x, rect.y + 8f, cells.Unit.width, 20f), row.UnitValue.ToString("N0"),
+            _p.Text(new Rect(cells.Count.x, rect.y + 8f, cells.Count.width, 22f),
+                PanelText.Fit(_p, row.CountText, cells.Count.width, PaintText.RowValue),
                 PaintText.RowValue, TextAnchor.MiddleRight, row.Eligible ? _c.TextDim : _c.TextFaint);
-            _p.Text(new Rect(cells.Total.x, rect.y + 8f, cells.Total.width, 20f), row.GoodsValue.ToString("N0"),
+            _p.Text(new Rect(cells.Unit.x, rect.y + 8f, cells.Unit.width, 22f), row.UnitValue.ToString("N0"),
+                PaintText.RowValue, TextAnchor.MiddleRight, row.Eligible ? _c.TextDim : _c.TextFaint);
+            _p.Text(new Rect(cells.Total.x, rect.y + 8f, cells.Total.width, 22f), row.GoodsValue.ToString("N0"),
                 PaintText.RowStrong, TextAnchor.MiddleRight, row.Eligible ? _c.Text : _c.TextFaint);
-            _p.Text(new Rect(cells.Weight.x, rect.y + 8f, cells.Weight.width, 20f), row.WeightKg.ToString("0.##") + "kg",
+            _p.Text(new Rect(cells.Weight.x, rect.y + 8f, cells.Weight.width, 22f), row.WeightKg.ToString("0.##") + "kg",
                 PaintText.RowValue, TextAnchor.MiddleRight, row.Eligible ? _c.TextFaint : _c.TextFaint);
 
             if (hovered)
@@ -266,11 +278,13 @@ namespace CaiYaStation
 
             _p.Solid(new Rect(rect.x + 2f, rect.y + 5f, 2f, rect.height - 10f), PanelPalette.Quality(row.Quality));
             _p.Icon(new Rect(rect.x + 9f, rect.y + 4f, 20f, 20f), row.Icon, row.Name, PaintText.Tiny, _c.TextDim);
-            _p.Text(new Rect(rect.x + 34f, rect.y + 5f, rect.width - 34f - 84f, 18f), row.Name,
+            var nameWidth = Mathf.Max(40f, rect.width - 34f - 84f);
+            _p.Text(new Rect(rect.x + 34f, rect.y + 5f, nameWidth, 20f),
+                PanelText.Fit(_p, row.Name, nameWidth, PaintText.RowValue),
                 PaintText.RowValue, TextAnchor.MiddleLeft, _c.Text);
-            _p.Text(new Rect(rect.xMax - 80f, rect.y + 5f, 30f, 18f), row.CountText,
+            _p.Text(new Rect(rect.xMax - 80f, rect.y + 5f, 30f, 20f), row.CountText,
                 PaintText.Tiny, TextAnchor.MiddleRight);
-            _p.Text(new Rect(rect.xMax - 46f, rect.y + 5f, 40f, 18f), row.GoodsValue.ToString("N0"),
+            _p.Text(new Rect(rect.xMax - 46f, rect.y + 5f, 40f, 20f), row.GoodsValue.ToString("N0"),
                 PaintText.RowValue, TextAnchor.MiddleRight, _c.Text);
         }
 
@@ -298,7 +312,8 @@ namespace CaiYaStation
                     2f, _c.Danger, null, 0f);
             _p.Text(l.RiskLegend, "丢件率 " + Percent(loss), PaintText.Tiny, TextAnchor.MiddleLeft,
                 loss > 0.001f ? _c.Danger : _c.TextFaint);
-            _p.Text(l.RiskCap, v.LossCapText, PaintText.Tiny, TextAnchor.MiddleRight);
+            _p.Text(l.RiskCap, PanelText.Fit(_p, v.LossCapText, l.RiskCap.width, PaintText.Tiny),
+                PaintText.Tiny, TextAnchor.MiddleRight);
         }
 
         private void MetricPair(Rect row, string keyA, string valueA, string keyB, string valueB, Color valueColor)
@@ -311,8 +326,10 @@ namespace CaiYaStation
         private void MetricCell(Rect cell, string key, string value, Color valueColor)
         {
             var half = cell.width * 0.5f;
-            _p.Text(new Rect(cell.x, cell.y, half - 4f, cell.height), key, PaintText.MetricLabel);
-            _p.Text(new Rect(cell.x + half, cell.y, half, cell.height), value,
+            _p.Text(new Rect(cell.x, cell.y, half - 4f, cell.height),
+                PanelText.Fit(_p, key, half - 4f, PaintText.MetricLabel), PaintText.MetricLabel);
+            _p.Text(new Rect(cell.x + half, cell.y, half, cell.height),
+                PanelText.Fit(_p, value, half, PaintText.MetricValue),
                 PaintText.MetricValue, TextAnchor.MiddleRight, valueColor);
         }
 
@@ -331,21 +348,74 @@ namespace CaiYaStation
                 if (card.Selected) _p.Solid(new Rect(rect.x + 1f, rect.y + 10f, 3f, rect.height - 20f), _c.Accent);
 
                 var titleColor = card.Affordable ? _c.Text : _c.TextFaint;
-                _p.Text(new Rect(rect.x + 13f, rect.y + 5f, rect.width - 26f - 112f, 18f), card.Title,
+                // The badge sits left of both text lines; the lines start after it so nothing collides.
+                DrawEscortBadge(new Rect(rect.x + 13f, rect.y + 8f, 28f, 28f), card.Option, card.Selected,
+                    card.Affordable);
+                var titleWidth = rect.width - 47f - 13f - 112f;
+                var costWidth = rect.width - 47f - 13f - 96f;
+                _p.Text(new Rect(rect.x + 47f, rect.y + 4f, titleWidth, 20f),
+                    PanelText.Fit(_p, card.Title, titleWidth, PaintText.Label),
                     PaintText.Label, TextAnchor.MiddleLeft, titleColor);
-                _p.Text(new Rect(rect.x + 13f, rect.y + 25f, rect.width - 26f - 96f, 15f), card.Cost,
+                _p.Text(new Rect(rect.x + 47f, rect.y + 25f, costWidth, 17f),
+                    PanelText.Fit(_p, card.Cost, costWidth, PaintText.Tiny),
                     PaintText.Tiny, TextAnchor.MiddleLeft, card.Affordable ? _c.TextDim : _c.TextFaint);
-                _p.Text(new Rect(rect.xMax - 108f, rect.y + 24f, 96f, 16f), card.Effect,
+                _p.Text(new Rect(rect.xMax - 108f, rect.y + 24f, 96f, 18f),
+                    PanelText.Fit(_p, card.Effect, 96f, PaintText.Tiny),
                     PaintText.Tiny, TextAnchor.MiddleRight, card.Selected ? _c.Accent : _c.TextDim);
 
                 if (!card.Affordable && card.Missing != null)
-                    _p.Text(new Rect(rect.xMax - 108f, rect.y + 5f, 96f, 14f), card.Missing,
+                    _p.Text(new Rect(rect.xMax - 108f, rect.y + 4f, 96f, 16f),
+                        PanelText.Fit(_p, card.Missing, 96f, PaintText.Tiny),
                         PaintText.Tiny, TextAnchor.MiddleRight, _c.Danger);
                 else if (card.Selected)
-                    _p.Text(new Rect(rect.xMax - 30f, rect.y + 5f, 18f, 14f), "√",
+                    _p.Text(new Rect(rect.xMax - 30f, rect.y + 4f, 18f, 16f), "√",
                         PaintText.Badge, TextAnchor.MiddleRight, _c.Accent);
 
                 AddHit(r, PanelHitKind.Escort, "escort:" + (int)card.Option, rect, 0, card.Option);
+            }
+        }
+
+        /// <summary>
+        /// Escort badge. The game ships no scavenger/mercenary portrait — there is no sprite key
+        /// for them, no character prefab, and CharacterIconTypes is only a classification enum —
+        /// so each card gets a hand-drawn badge built from the same rounded-rect primitives as the
+        /// rest of the panel: no asset, no load step, no missing-texture fallback to go wrong.
+        /// </summary>
+        private void DrawEscortBadge(Rect rect, EscortOption option, bool selected, bool affordable)
+        {
+            var tint = !affordable
+                ? _c.TextFaint
+                : option == EscortOption.Scavenger ? _c.Warning
+                : option == EscortOption.Mercenary ? _c.Blue
+                : _c.TextDim;
+            _p.Rounded(rect, 8f, PanelPalette.Alpha(tint, selected ? 0.20f : 0.12f),
+                PanelPalette.Alpha(tint, selected ? 0.55f : 0.28f), 1f);
+
+            var body = new Rect(rect.x + 3f, rect.y + 3f, rect.width - 6f, rect.height - 6f);
+            switch (option)
+            {
+                case EscortOption.Scavenger:
+                    // Hooded scavenger with the pack on his back: hood, shoulders, then the pack.
+                    _p.Rounded(new Rect(body.x + 5f, body.y + 1f, 10f, 10f), 5f, tint, null, 0f);
+                    _p.Rounded(new Rect(body.x + 3f, body.y + 11f, 14f, 9f), 4f,
+                        PanelPalette.Alpha(tint, 0.78f), null, 0f);
+                    _p.Rounded(new Rect(body.x + 13f, body.y + 9f, 7f, 10f), 2f,
+                        PanelPalette.Alpha(tint, 0.30f), tint, 1f);
+                    break;
+                case EscortOption.Mercenary:
+                    // Helmeted mercenary with a rifle held across the body.
+                    _p.Rounded(new Rect(body.x + 5f, body.y + 2f, 12f, 8f), 4f, tint, null, 0f);
+                    _p.Solid(new Rect(body.x + 6.5f, body.y + 6.5f, 9f, 2f), PanelPalette.Alpha(_c.Card, 0.85f));
+                    _p.Rounded(new Rect(body.x + 2f, body.y + 11f, 15f, 9f), 4f,
+                        PanelPalette.Alpha(tint, 0.78f), null, 0f);
+                    _p.Solid(new Rect(body.x + 11f, body.y + 13f, 9f, 2f), tint);
+                    _p.Solid(new Rect(body.x + 13f, body.y + 16f, 2f, 3f), PanelPalette.Alpha(tint, 0.85f));
+                    break;
+                default:
+                    // No escort: a plain dash, the same shape as the "none" option everywhere else.
+                    _p.Rounded(new Rect(body.x + 5f, body.y + 10f, 12f, 3f), 1.5f,
+                        PanelPalette.Alpha(tint, 0.80f), null, 0f);
+                    break;
             }
         }
 
@@ -360,10 +430,12 @@ namespace CaiYaStation
             _p.Text(l.CashLabel, "现金", PaintText.MetricLabel);
             _p.Text(l.CashValue, v.Cash.ToString("N0"), PaintText.Label);
 
-            _p.Text(l.FooterSummary, v.Summary, PaintText.Small);
+            _p.Text(l.FooterSummary, PanelText.Fit(_p, v.Summary, l.FooterSummary.width, PaintText.Small),
+                PaintText.Small);
             var statusColor = v.StatusKind == FooterStatusKind.Danger ? _c.Danger
                 : v.StatusKind == FooterStatusKind.Warning ? _c.Warning : _c.TextFaint;
-            _p.Text(l.FooterStatus, v.Status, PaintText.Tiny, TextAnchor.MiddleLeft, statusColor);
+            _p.Text(l.FooterStatus, PanelText.Fit(_p, v.Status, l.FooterStatus.width, PaintText.Tiny),
+                PaintText.Tiny, TextAnchor.MiddleLeft, statusColor);
 
             DrawButton(l.SelectAllButton, "全选可寄", false, true, l.SelectAllButton.Contains(mouse),
                 PanelHitKind.SelectAll, "selectall", r);
@@ -410,7 +482,11 @@ namespace CaiYaStation
         private void DrawTooltip(ShipmentRowView row, Rect rowRect, PanelLayout l, PanelRenderResult result)
         {
             var width = 300f;
-            var height = TooltipHeight(row, width);
+            // The card lives inside the left column, so its whole height budget comes from that
+            // column minus the 8px breathing room kept above and below it.
+            var maxHeight = Mathf.Max(140f, l.Left.height - 16f);
+            var room = DescriptionRoom(maxHeight);
+            var height = Mathf.Min(TooltipHeight(row, width, room), maxHeight);
             // The card sits above or below the row it describes, inside the left column. Parking it
             // beside the row means parking it on the rail, where the escort cards and the delivery
             // manifest live, and those stay clickable under a card the player cannot see through.
@@ -430,53 +506,93 @@ namespace CaiYaStation
             _p.Solid(new Rect(rect.x + 14f, rect.y, rect.width - 28f, 2f), _c.Accent);
 
             var cursor = rect.y + 12f;
-            _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 20f),
-                row.Name + (row.StackCount > 1 ? "  ×" + row.StackCount : ""), PaintText.TooltipTitle);
+            var titleWidth = rect.width - 28f;
+            _p.Text(new Rect(rect.x + 14f, cursor, titleWidth, 22f),
+                PanelText.Fit(_p, row.Name + (row.StackCount > 1 ? "  ×" + row.StackCount : ""), titleWidth,
+                    PaintText.TooltipTitle), PaintText.TooltipTitle);
             cursor += 22f;
 
             if (!string.IsNullOrEmpty(row.Description))
             {
-                var text = row.Description.Length > 220 ? row.Description.Substring(0, 220) + "…" : row.Description;
-                var descHeight = MeasureTooltip(row, text, rect.width - 28f);
-                _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, descHeight), text,
+                var body = MeasureTooltip(row, rect.width - 28f, DescriptionRoom(maxHeight));
+                _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, body.Height), body.Text,
                     PaintText.TooltipBody, TextAnchor.UpperLeft, null, true);
-                cursor += descHeight + 6f;
+                cursor += body.Height + 6f;
                 _p.Solid(new Rect(rect.x + 14f, cursor, rect.width - 28f, 1f), _c.CardBorder);
                 cursor += 7f;
             }
 
-            _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 16f),
-                "价值 " + row.UnitValue.ToString("N0") + " × " + row.StackCount + " = " + row.GoodsValue.ToString("N0"),
+            _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 18f),
+                PanelText.Fit(_p, "价值 " + row.UnitValue.ToString("N0") + " × " + row.StackCount + " = "
+                    + row.GoodsValue.ToString("N0"), rect.width - 28f, PaintText.TooltipLine),
                 PaintText.TooltipLine);
             cursor += 18f;
-            _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 16f),
-                "重量 " + row.WeightKg.ToString("0.##") + " kg　·　品质 " + row.Quality, PaintText.TooltipLine);
+            _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 18f),
+                PanelText.Fit(_p, "重量 " + row.WeightKg.ToString("0.##") + " kg　·　品质 " + row.Quality,
+                    rect.width - 28f, PaintText.TooltipLine), PaintText.TooltipLine);
             cursor += 18f;
             if (row.Eligible)
-                _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 16f), "可寄送　·　单击加入运送清单",
+                _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 18f), "可寄送　·　单击加入运送清单",
                     PaintText.TooltipLine, TextAnchor.MiddleLeft, _c.Good);
             else
-                _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 16f), "不可寄：" + row.BlockedReason,
+                _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 18f),
+                    PanelText.Fit(_p, "不可寄：" + row.BlockedReason, rect.width - 28f, PaintText.TooltipLine),
                     PaintText.TooltipLine, TextAnchor.MiddleLeft, _c.Danger);
         }
 
-        private float TooltipHeight(ShipmentRowView row, float width)
+        private float TooltipHeight(ShipmentRowView row, float width, float room)
         {
-            var height = 12f + 22f + 18f + 18f + 16f + 12f;
+            // 12 top + title 22 + three 18px lines + 12 bottom; the description band is added below.
+            var height = 12f + 22f + 18f + 18f + 18f + 12f;
             if (!string.IsNullOrEmpty(row.Description))
             {
-                var text = row.Description.Length > 220 ? row.Description.Substring(0, 220) + "…" : row.Description;
-                height += MeasureTooltip(row, text, width - 28f) + 6f + 1f + 7f;
+                height += MeasureTooltip(row, width - 28f, room).Height + 6f + 1f + 7f;
             }
             return height;
         }
 
-        private float MeasureTooltip(ShipmentRowView row, string text, float width)
+        /// <summary>
+        /// Height the description band may occupy: the card budget minus its fixed chrome.
+        /// </summary>
+        private static float DescriptionRoom(float maxHeight) => Mathf.Max(15f, maxHeight - 12f - 22f - 54f - 14f);
+
+        /// <summary>
+        /// The description band used to be measured and then clamped to 54px, while the style drew
+        /// with Clip: any description longer than three lines lost its tail silently, with no
+        /// ellipsis to show there was more. Measure the real height instead, and if the card would
+        /// outgrow the column, cut the text at a line boundary and append an ellipsis so what is
+        /// shown is a complete thought rather than a severed glyph run.
+        /// </summary>
+        private TooltipBody MeasureTooltip(ShipmentRowView row, float width, float room)
         {
-            if (_measuredTooltips.TryGetValue(row.InstanceId, out var height)) return height;
-            height = Mathf.Clamp(_p.Measure(text, width, PaintText.TooltipBody), 15f, 54f);
-            _measuredTooltips[row.InstanceId] = height;
-            return height;
+            var key = (row.InstanceId, Mathf.RoundToInt(room * 4f));
+            if (_measuredTooltips.TryGetValue(key, out var cached)) return cached;
+            var source = row.Description ?? string.Empty;
+            if (source.Length > 220) source = source.Substring(0, 220) + "…";
+            var height = _p.Measure(source, width, PaintText.TooltipBody);
+            if (height > room)
+            {
+                var clipped = source;
+                while (clipped.Length > 1 && _p.Measure(clipped + "…", width, PaintText.TooltipBody) > room)
+                    clipped = clipped.Substring(0, clipped.Length - 1);
+                source = clipped.Length > 1 ? clipped + "…" : source;
+                height = Mathf.Min(_p.Measure(source, width, PaintText.TooltipBody), room);
+            }
+            var body = new TooltipBody(source, Mathf.Max(15f, height));
+            _measuredTooltips[key] = body;
+            return body;
+        }
+
+        private readonly struct TooltipBody
+        {
+            internal readonly string Text;
+            internal readonly float Height;
+
+            internal TooltipBody(string text, float height)
+            {
+                Text = text;
+                Height = height;
+            }
         }
 
         // ------------------------------------------------------------------ helpers

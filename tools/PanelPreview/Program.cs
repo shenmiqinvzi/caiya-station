@@ -31,7 +31,7 @@ internal static class Program
         CheckLayouts(failures);
         CheckReceipt(failures);
         if (failures.Count == 0)
-            Console.WriteLine("Receipt layout check passed: 6 sizes, chips fit their three lines, no overlap.");
+            Console.WriteLine("Receipt layout check passed: 8 sizes x 2 loss states, header/info/stats/tables/footer ordered.");
 
         var defaultPainter = new RecordPainter();
         var defaultResult = RenderScene(defaultPainter, BuildFixture(false, false), new Vector2(-100f, -100f), 1280f, 800f);
@@ -59,6 +59,42 @@ internal static class Program
         File.WriteAllText(Path.Combine(outDir, "panel-small.json"),
             BuildDocument(smallPainter, 900f, 700f), new UTF8Encoding(false));
 
+        // Receipt scenes replay the exact ReceiptRenderer the game paints, so the three states
+        // (everything arrived, partly lost, loss notice) are checked and previewed from real code.
+        var deliveredPainter = new RecordPainter();
+        var deliveredLayout = ReceiptLayout.Compute(1280f, 800f, true);
+        var deliveredRenderer = new ReceiptRenderer(deliveredPainter, PanelPalette.Default, _ => null,
+            typeId => "物品 " + typeId);
+        var deliveredScroll = 0f;
+        var lostScroll = 0f;
+        deliveredRenderer.DrawReceipt(deliveredLayout, 1280f, 800f, BuildReceipt(false, false), null, null,
+            ref deliveredScroll, ref lostScroll);
+        CheckReceiptScene(deliveredPainter, failures, "receipt delivered");
+        File.WriteAllText(Path.Combine(outDir, "receipt-delivered.json"),
+            BuildDocument(deliveredPainter, 1280f, 800f, deliveredLayout.Panel), new UTF8Encoding(false));
+
+        var partialPainter = new RecordPainter();
+        var partialLayout = ReceiptLayout.Compute(1280f, 800f, false);
+        var partialRenderer = new ReceiptRenderer(partialPainter, PanelPalette.Default, _ => null,
+            typeId => "物品 " + typeId);
+        var partialDeliveredScroll = 0f;
+        var partialLostScroll = 0f;
+        partialRenderer.DrawReceipt(partialLayout, 1280f, 800f, BuildReceipt(true, false), null, null,
+            ref partialDeliveredScroll, ref partialLostScroll);
+        CheckReceiptScene(partialPainter, failures, "receipt partial");
+        File.WriteAllText(Path.Combine(outDir, "receipt-partial.json"),
+            BuildDocument(partialPainter, 1280f, 800f, partialLayout.Panel), new UTF8Encoding(false));
+
+        var noticePainter = new RecordPainter();
+        var noticeRenderer = new ReceiptRenderer(noticePainter, PanelPalette.Default, _ => null,
+            typeId => "物品 " + typeId);
+        var noticeScroll = 0f;
+        noticeRenderer.DrawLossNotice(BuildReceipt(true, false), 1280f, 800f, ref noticeScroll,
+            out var noticePanel, out _, out _, out _, out _);
+        CheckReceiptScene(noticePainter, failures, "loss notice");
+        File.WriteAllText(Path.Combine(outDir, "receipt-notice.json"),
+            BuildDocument(noticePainter, 1280f, 800f, noticePanel), new UTF8Encoding(false));
+
         if (failures.Count > 0)
         {
             Console.Error.WriteLine("Panel layout check failed:");
@@ -66,8 +102,8 @@ internal static class Program
             return 1;
         }
 
-        Console.WriteLine("Panel layout check passed: 4 sizes, 4 scenes, no overlapping bands or text.");
-        Console.WriteLine("Wrote " + Path.Combine(outDir, "panel-*.json"));
+        Console.WriteLine("Panel layout check passed: 4 sizes, 4 scenes, 3 receipt scenes, no overlapping bands or text.");
+        Console.WriteLine("Wrote " + Path.Combine(outDir, "panel-*.json") + " and receipt-*.json");
         return 0;
     }
 
@@ -190,59 +226,142 @@ internal static class Program
     }
 
     /// <summary>
-    /// Receipt sheet: every band measured from the chip strip and the footer must stay ordered,
-    /// and each chip must be tall enough for its three lines (label 16 + value 24 + sub 16 = 64).
+    /// Receipt sheet: the header, the order-info card, the three stat cards, the two goods tables
+    /// and the footer must stay ordered inside the panel on every supported resolution, and each
+    /// table must still fit at least one row once its title and footer are taken out.
     /// </summary>
     private static void CheckReceipt(List<string> failures)
     {
         var sizes = new (float W, float H)[]
         {
-            (2560f, 1440f), (1920f, 1080f), (1600f, 900f), (1280f, 800f), (1024f, 768f), (900f, 700f)
+            (2560f, 1440f), (1920f, 1080f), (1600f, 900f), (1280f, 720f), (1366f, 768f), (1280f, 800f),
+            (1024f, 768f), (900f, 700f)
         };
 
-        foreach (var size in sizes)
+        foreach (var lostEmpty in new[] { true, false })
         {
-            var r = ReceiptLayout.Compute(size.W, size.H);
-            var tag = "receipt " + size.W.ToString("0", Inv) + "x" + size.H.ToString("0", Inv);
-
-            if (!Inside(new Rect(0f, 0f, size.W, size.H), r.Panel, 0.5f))
-                failures.Add(tag + ": sheet is outside the screen");
-
-            var chips = new[] { r.ChipOne, r.ChipTwo, r.ChipThree, r.ChipFour };
-            for (var i = 0; i < chips.Length; i++)
+            foreach (var size in sizes)
             {
-                ExpectInside(failures, tag, "Chip" + i, chips[i], r.Panel);
-                if (chips[i].height + 0.5f < ReceiptLayout.ChipContentBottom)
-                    failures.Add(tag + ": Chip" + i + " is " + chips[i].height.ToString("0.0", Inv)
-                                 + " high but its three lines need " + ReceiptLayout.ChipContentBottom.ToString("0.0", Inv));
-                if (chips[i].width < 120f)
-                    failures.Add(tag + ": Chip" + i + " is only " + chips[i].width.ToString("0.0", Inv) + " wide");
-                if (i > 0) ExpectNoOverlap(failures, tag, "Chip" + (i - 1), chips[i - 1], "Chip" + i, chips[i]);
+                var r = ReceiptLayout.Compute(size.W, size.H, lostEmpty);
+                var tag = "receipt " + size.W.ToString("0", Inv) + "x" + size.H.ToString("0", Inv)
+                          + (lostEmpty ? " (no loss)" : " (loss)");
+
+                if (!Inside(new Rect(0f, 0f, size.W, size.H), r.Panel, 0.5f))
+                    failures.Add(tag + ": sheet is outside the screen");
+
+                ExpectInside(failures, tag, "Header", r.Header, r.Panel);
+                ExpectInside(failures, tag, "HeaderLogo", r.HeaderLogo, r.Header);
+                ExpectInside(failures, tag, "HeaderTitle", r.HeaderTitle, r.Header);
+                ExpectInside(failures, tag, "HeaderSubtitle", r.HeaderSubtitle, r.Header);
+                ExpectInside(failures, tag, "HeaderBadge", r.HeaderBadge, r.Header);
+                ExpectInside(failures, tag, "HeaderClose", r.HeaderClose, r.Header);
+                ExpectNoOverlap(failures, tag, "HeaderLogo", r.HeaderLogo, "HeaderTitle", r.HeaderTitle);
+                ExpectNoOverlap(failures, tag, "HeaderTitle", r.HeaderTitle, "HeaderBadge", r.HeaderBadge);
+                ExpectNoOverlap(failures, tag, "HeaderSubtitle", r.HeaderSubtitle, "HeaderBadge", r.HeaderBadge);
+                ExpectNoOverlap(failures, tag, "HeaderBadge", r.HeaderBadge, "HeaderClose", r.HeaderClose);
+                if (r.HeaderTitle.width < 160f)
+                    failures.Add(tag + ": header title is only " + r.HeaderTitle.width.ToString("0.0", Inv) + " wide");
+
+                ExpectInside(failures, tag, "InfoCard", r.InfoCard, r.Panel);
+                ExpectNoOverlap(failures, tag, "Header", r.Header, "InfoCard", r.InfoCard);
+
+                var stats = new[] { r.StatOne, r.StatTwo, r.StatThree };
+                for (var i = 0; i < stats.Length; i++)
+                {
+                    ExpectInside(failures, tag, "Stat" + i, stats[i], r.Panel);
+                    ExpectNoOverlap(failures, tag, "InfoCard", r.InfoCard, "Stat" + i, stats[i]);
+                    if (stats[i].height + 0.5f < ReceiptLayout.StatSub2Top + ReceiptLayout.StatSub2Height)
+                        failures.Add(tag + ": Stat" + i + " is " + stats[i].height.ToString("0.0", Inv)
+                                     + " high but its four lines need "
+                                     + (ReceiptLayout.StatSub2Top + ReceiptLayout.StatSub2Height).ToString("0.0", Inv));
+                    if (stats[i].width < 120f)
+                        failures.Add(tag + ": Stat" + i + " is only " + stats[i].width.ToString("0.0", Inv) + " wide");
+                    if (i > 0) ExpectNoOverlap(failures, tag, "Stat" + (i - 1), stats[i - 1], "Stat" + i, stats[i]);
+                }
+
+                ExpectInside(failures, tag, "Delivered", r.Delivered, r.Panel);
+                ExpectInside(failures, tag, "Lost", r.Lost, r.Panel);
+                ExpectNoOverlap(failures, tag, "Delivered", r.Delivered, "Lost", r.Lost);
+                ExpectNoOverlap(failures, tag, "Stat0", stats[0], "Delivered", r.Delivered);
+                ExpectNoOverlap(failures, tag, "Lost", r.Lost, "FooterHint", r.FooterHint);
+                ExpectNoOverlap(failures, tag, "Lost", r.Lost, "Button", r.Button);
+                ExpectInside(failures, tag, "FooterHint", r.FooterHint, r.Panel);
+                ExpectInside(failures, tag, "Button", r.Button, r.Panel);
+                ExpectNoOverlap(failures, tag, "FooterHint", r.FooterHint, "Button", r.Button);
+
+                var deliveredView = ReceiptLayout.ListView(r.Delivered);
+                var lostView = ReceiptLayout.ListView(r.Lost);
+                ExpectInside(failures, tag, "DeliveredView", deliveredView, r.Delivered);
+                ExpectInside(failures, tag, "LostView", lostView, r.Lost);
+                if (ReceiptLayout.ListCapacity(r.Delivered.height) < 1)
+                    failures.Add(tag + ": delivered table fits no row");
+                if (!lostEmpty && ReceiptLayout.ListCapacity(r.Lost.height) < 1)
+                    failures.Add(tag + ": lost table fits no row");
+                if (lostEmpty && r.Lost.height + 0.5f < ReceiptLayout.LostHintHeight)
+                    failures.Add(tag + ": no-loss hint is " + r.Lost.height.ToString("0.0", Inv)
+                                 + " high, below " + ReceiptLayout.LostHintHeight.ToString("0.0", Inv));
+
+                // Every goods row's six columns must stay inside the row and never overlap.
+                var row = ReceiptLayout.ListRow(r.Delivered, 0);
+                ReceiptLayout.ListColumns(row, out var icon, out var name, out var count, out var unit,
+                    out var total, out var status);
+                ExpectInside(failures, tag, "RowIcon", icon, row);
+                ExpectInside(failures, tag, "RowName", name, row);
+                ExpectInside(failures, tag, "RowCount", count, row);
+                ExpectInside(failures, tag, "RowUnit", unit, row);
+                ExpectInside(failures, tag, "RowTotal", total, row);
+                ExpectInside(failures, tag, "RowStatus", status, row);
+                ExpectNoOverlap(failures, tag, "RowIcon", icon, "RowName", name);
+                ExpectNoOverlap(failures, tag, "RowName", name, "RowCount", count);
+                ExpectNoOverlap(failures, tag, "RowCount", count, "RowUnit", unit);
+                ExpectNoOverlap(failures, tag, "RowUnit", unit, "RowTotal", total);
+                ExpectNoOverlap(failures, tag, "RowTotal", total, "RowStatus", status);
+                if (name.width < 80f)
+                    failures.Add(tag + ": row name column is only " + name.width.ToString("0.0", Inv) + " wide");
+
+                for (var index = 0; index < 6; index++)
+                {
+                    r.InfoField(index, out var label, out var value);
+                    ExpectInside(failures, tag, "Info" + index + "Label", label, r.InfoCard);
+                    ExpectInside(failures, tag, "Info" + index + "Value", value, r.InfoCard);
+                    ExpectNoOverlap(failures, tag, "Info" + index + "Label", label, "Info" + index + "Value", value);
+                    if (value.width < 90f)
+                        failures.Add(tag + ": info field " + index + " value is only "
+                                     + value.width.ToString("0.0", Inv) + " wide");
+                }
             }
+        }
+    }
 
-            ExpectInside(failures, tag, "HeaderTitle", r.HeaderTitle, r.Panel);
-            ExpectInside(failures, tag, "HeaderBadge", r.HeaderBadge, r.Panel);
-            ExpectNoOverlap(failures, tag, "HeaderTitle", r.HeaderTitle, "HeaderBadge", r.HeaderBadge);
-            ExpectInside(failures, tag, "HeaderClose", r.HeaderClose, r.Panel);
-            ExpectNoOverlap(failures, tag, "HeaderSubtitle", r.HeaderSubtitle, "HeaderClose", r.HeaderClose);
-            ExpectNoOverlap(failures, tag, "Header", r.Header, "Chip0", chips[0]);
-
-            ExpectInside(failures, tag, "Delivered", r.Delivered, r.Panel);
-            ExpectInside(failures, tag, "Lost", r.Lost, r.Panel);
-            ExpectNoOverlap(failures, tag, "Delivered", r.Delivered, "Lost", r.Lost);
-            ExpectNoOverlap(failures, tag, "Chip0", chips[0], "Delivered", r.Delivered);
-            ExpectNoOverlap(failures, tag, "Delivered", r.Delivered, "Headline", r.Headline);
-            ExpectNoOverlap(failures, tag, "Headline", r.Headline, "Flavor", r.Flavor);
-            ExpectNoOverlap(failures, tag, "Flavor", r.Flavor, "Button", r.Button);
-            ExpectInside(failures, tag, "Headline", r.Headline, r.Panel);
-            ExpectInside(failures, tag, "Flavor", r.Flavor, r.Panel);
-            ExpectInside(failures, tag, "Button", r.Button, r.Panel);
-
-            if (r.ListHeight + 0.5f < ReceiptLayout.ListMinHeight)
-                failures.Add(tag + ": list cards are " + r.ListHeight.ToString("0.0", Inv)
-                             + " high, below the " + ReceiptLayout.ListMinHeight.ToString("0.0", Inv) + " floor");
-            if (ReceiptLayout.ListCapacity(r.ListHeight) < 1 && size.H >= 420f)
-                failures.Add(tag + ": list cards fit no row at all");
+    /// <summary>
+    /// One rendered receipt scene: nothing may be painted outside its panel and no two text boxes
+    /// may collide. This is the same check the panel scenes get, run over the receipt renderer.
+    /// </summary>
+    private static void CheckReceiptScene(RecordPainter painter, List<string> failures, string tag)
+    {
+        var texts = painter.TextRects();
+        if (texts.Count == 0)
+        {
+            failures.Add(tag + ": nothing was painted");
+            return;
+        }
+        for (var i = 0; i < texts.Count; i++)
+        {
+            if (!texts[i].Wrap)
+            {
+                var needed = ApproxTextWidth(texts[i].Text, texts[i].Size);
+                if (needed > texts[i].Rect.width + 1.5f)
+                    failures.Add(tag + ": text clipped: \"" + texts[i].Text + "\" needs "
+                                 + needed.ToString("0", Inv) + " but has " + texts[i].Rect.width.ToString("0", Inv));
+            }
+            if (texts[i].Extent.width < 1f || texts[i].Extent.height < 1f) continue;
+            for (var j = i + 1; j < texts.Count; j++)
+            {
+                if (texts[j].Extent.width < 1f || texts[j].Extent.height < 1f) continue;
+                if (!Overlaps(texts[i].Extent, texts[j].Extent, 1f)) continue;
+                failures.Add(tag + ": text overlap: \"" + texts[i].Text + "\" " + Describe(texts[i].Extent)
+                             + " vs \"" + texts[j].Text + "\" " + Describe(texts[j].Extent));
+            }
         }
     }
 
@@ -415,14 +534,57 @@ internal static class Program
 
     // ------------------------------------------------------------------ json
 
-    private static string BuildDocument(RecordPainter painter, float width, float height)
+    private static string BuildDocument(RecordPainter painter, float width, float height, Rect? panelOverride = null)
     {
         var builder = new StringBuilder();
-        var panel = PanelLayout.PanelRect(width, height, 920f, 700f);
+        var panel = panelOverride ?? PanelLayout.PanelRect(width, height, 920f, 700f);
         builder.Append("{\"size\":[").Append(Num(width)).Append(',').Append(Num(height)).Append("],\"panel\":[").Append(Num(panel.x)).Append(',').Append(Num(panel.y)).Append(',').Append(Num(panel.width)).Append(',').Append(Num(panel.height)).Append("],\"commands\":");
         builder.Append(painter.BuildJson());
         builder.Append('}');
         return builder.ToString();
+    }
+
+    // ------------------------------------------------------------------ receipt fixtures
+
+    /// <summary>
+    /// Receipt fixture. <paramref name="anyLost"/> builds a partial shipment (some stacks arrived,
+    /// some did not) and <paramref name="legacy"/> builds a receipt written before the escort
+    /// material fields existed, so the sheet must say 未记录 rather than guess.
+    /// </summary>
+    private static Receipt BuildReceipt(bool anyLost, bool legacy)
+    {
+        var receipt = new Receipt
+        {
+            ShipmentId = "CY-20261031-0007",
+            CreatedUtc = "2026-10-31T09:41:00.0000000Z",
+            StationId = "farm-market",
+            StationName = "菜鸭驿站·农场镇集市口",
+            MapId = "Level_Farm_Main",
+            GoodsValue = 6363,
+            Fee = 636,
+            EscortMoney = 1000,
+            EscortName = "拾荒者团",
+            LossRate = 0.048,
+            Flavor = "一路顺风，清点无误，整批货都到了。"
+        };
+        if (!legacy)
+        {
+            receipt.EscortItemId = 368;
+            receipt.EscortItemAmount = 4;
+        }
+
+        receipt.Delivered.Add(new ReceiptLine { TypeId = 1, Name = "土豆", StackCount = 1, UnitValue = 230 });
+        receipt.Delivered.Add(new ReceiptLine { TypeId = 2, Name = "焗豆罐头", StackCount = 3, UnitValue = 102 });
+        receipt.Delivered.Add(new ReceiptLine { TypeId = 13, Name = "五级防弹衣", StackCount = 1, UnitValue = 5827 });
+        if (!anyLost) return receipt;
+
+        receipt.GoodsValue = 8853;
+        receipt.Lost.Add(new ReceiptLine { TypeId = 6, Name = "瓶装水", StackCount = 6, UnitValue = 375 });
+        receipt.Lost.Add(new ReceiptLine { TypeId = 12, Name = "止血绷带", StackCount = 3, UnitValue = 80 });
+        receipt.LossCulprits = "拾荒者、机械蜘蛛";
+        receipt.LossKaomoji = "(╥﹏╥)";
+        receipt.Flavor = "路上遇到拾荒者拦路，丢了几件。";
+        return receipt;
     }
 
     // ------------------------------------------------------------------ assertions
@@ -540,6 +702,14 @@ internal sealed class RecordPainter : IPanelPainter
             used += ch < 128 ? spec.Size * 0.55f : spec.Size * 1.0f;
         var lines = Math.Max(1f, MathF.Ceiling(used / MathF.Max(16f, width)));
         return lines * (spec.Size * 1.42f + 2f);
+    }
+
+    public float Width(string text, PaintText role)
+    {
+        var spec = PaintStyles.Resolve(role, _palette);
+        var used = 0f;
+        foreach (var ch in text) used += ch < 128 ? spec.Size * 0.55f : spec.Size * 1.0f;
+        return used;
     }
 
     internal string BuildJson() => "[" + string.Join(",", _commands) + "]";

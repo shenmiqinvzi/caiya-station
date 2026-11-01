@@ -15,6 +15,17 @@ namespace CaiYaStation.Domain
         public long GoodsValue => Math.Max(1, UnitValue) * (long)Math.Max(0, StackCount);
     }
 
+    /// <summary>How the shipment ended, derived from the stacks on the sheet.</summary>
+    public enum ReceiptOutcome
+    {
+        /// <summary>Every stack arrived.</summary>
+        Delivered = 0,
+        /// <summary>Some stacks arrived and some were lost.</summary>
+        Partial = 1,
+        /// <summary>Nothing arrived.</summary>
+        Lost = 2
+    }
+
     public sealed class Receipt
     {
         public string ShipmentId { get; set; } = "";
@@ -34,6 +45,14 @@ namespace CaiYaStation.Domain
         public string LossKaomoji { get; set; } = "";
 
         /// <summary>
+        /// Material the escort consumed (feathers or dog tags). Zero means the receipt was written
+        /// before these fields existed, so the sheet must say "未记录" instead of guessing from the
+        /// current escort table — the table may have changed since.
+        /// </summary>
+        public int EscortItemId { get; set; }
+        public long EscortItemAmount { get; set; }
+
+        /// <summary>
         /// False while the receipt still waits for the player to come back to the bunker.
         /// Null means it was written before receipts were deferred: treated as already read so
         /// upgrading does not replay old shipments.
@@ -47,6 +66,16 @@ namespace CaiYaStation.Domain
         public long TotalUpfront => Fee + EscortMoney;
         public int DeliveredStacks => Delivered.Count;
         public int LostStacks => Lost.Count;
+
+        /// <summary>
+        /// Three-way result. The old sheet treated "one stack arrived" as 已送达, which reads as a
+        /// lie whenever the rest of the shipment was lost. Derived from the stack lists only, so it
+        /// never disagrees with the settlement that produced them.
+        /// </summary>
+        public ReceiptOutcome Outcome =>
+            DeliveredStacks == 0
+                ? ReceiptOutcome.Lost
+                : LostStacks == 0 ? ReceiptOutcome.Delivered : ReceiptOutcome.Partial;
 
         public bool IsConsistent =>
             DeliveredValue + LostValue == GoodsValue &&

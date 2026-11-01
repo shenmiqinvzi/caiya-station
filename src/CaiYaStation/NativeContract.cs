@@ -51,6 +51,11 @@ namespace CaiYaStation
             Need(typeof(Item), "Tags", property: true);
             Need(typeof(Item), "Inventory", property: true);
             Need(typeof(Item), "CanDrop", property: true);
+            // Weapon detection for the container exemption: a wielded item resolves to an agent
+            // prefab, and ItemMetaData carries the caliber only for firearms.
+            Need(typeof(Item), "HasHandHeldAgent", property: true);
+            Need(typeof(ItemMetaData), "Catagory", property: true);
+            Need(typeof(ItemMetaData), "caliber", field: true);
             Need(typeof(Item), "IsInCharacterSlot");
             Need(typeof(Item), "Detach");
             Need(typeof(Inventory), "Content", property: true);

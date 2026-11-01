@@ -27,6 +27,26 @@ namespace CaiYaStation.Domain
         /// fail closed for such stacks: they may hide quest/keys/cash tags.</summary>
         public bool ProtectionCheckFailed { get; set; }
 
+        /// <summary>
+        /// Item.HandHeldAgent resolves to a prefab: true for guns and every other wielded item.
+        /// The game tags those "Continer" because they accept attachments, which is exactly why
+        /// the container rule has to exempt them instead of treating a rifle as a backpack.
+        /// </summary>
+        public bool HasHandHeldAgent { get; set; }
+
+        /// <summary>ItemMetaData.Catagory — the game's first tag name, its closest thing to a
+        /// category. Empty when metadata could not be read.</summary>
+        public string Category { get; set; } = "";
+
+        /// <summary>ItemMetaData.caliber. Only firearms (and their ammo) fill it in.</summary>
+        public string Caliber { get; set; } = "";
+
+        /// <summary>
+        /// A wielded item or anything with a caliber. Deliberately generous: a false positive only
+        /// means a stack skips the container rule, and every non-container stack already ships.
+        /// </summary>
+        public bool IsWeapon => HasHandHeldAgent || !string.IsNullOrEmpty(Caliber);
+
         public long GoodsValue => Math.Max(1, UnitValue) * (long)Math.Max(0, StackCount);
     }
 

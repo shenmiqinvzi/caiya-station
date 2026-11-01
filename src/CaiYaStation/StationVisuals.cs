@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using CaiYaStation.Domain;
 using UnityEngine;
@@ -26,12 +27,20 @@ namespace CaiYaStation
         private Material? _burlap;
         private Font? _signFont;
         private bool _materialsReady;
+        private readonly string _resourceDirectory;
         private Texture2D? _iconTexture;
         private Sprite? _icon;
+        private Texture2D? _iconUsedTexture;
+        private Sprite? _iconUsed;
+        private Texture2D? _markerTexture;
+        private Sprite? _markerIcon;
+        private Texture2D? _markerUsedTexture;
+        private Sprite? _markerUsed;
 
-        internal StationVisuals(Action<string> log)
+        internal StationVisuals(Action<string> log, string? resourceDirectory = null)
         {
             _log = log;
+            _resourceDirectory = resourceDirectory ?? "";
         }
 
         internal Sprite Icon
@@ -40,6 +49,49 @@ namespace CaiYaStation
             {
                 if (_icon == null) _icon = CreateIcon();
                 return _icon;
+            }
+        }
+
+        /// <summary>
+        /// Greyed-out variant of <see cref="Icon"/>, used once a station has shipped this raid.
+        /// Derived from the same pixels so the sticker keeps its silhouette instead of being
+        /// tinted by the map UI (SimplePointOfInterest.Color multiplies the sprite).
+        /// </summary>
+        internal Sprite IconUsed
+        {
+            get
+            {
+                if (_iconUsed == null) _iconUsed = CreateUsedIcon();
+                return _iconUsed;
+            }
+        }
+
+        /// <summary>
+        /// The minimap POI icon, which is a different drawing from <see cref="Icon"/>.
+        /// The full sticker carries a wooden sign with four characters plus two crates; the
+        /// minimap draws the POI slot at roughly 24-48 px, where that lettering collapses into
+        /// an orange smear. <c>marker-map.png</c> is the same duck, cap, awning and pointer
+        /// without the sign and crates, so it still reads as the station at that size. The
+        /// panel header and the delivery receipt keep the full sticker.
+        /// </summary>
+        internal Sprite MarkerIcon
+        {
+            get
+            {
+                if (_markerIcon == null) _markerIcon = CreateMarkerIcon();
+                return _markerIcon;
+            }
+        }
+
+        /// <summary>
+        /// Greyed-out variant of <see cref="MarkerIcon"/> for a station that already shipped.
+        /// </summary>
+        internal Sprite MarkerIconUsed
+        {
+            get
+            {
+                if (_markerUsed == null) _markerUsed = CreateMarkerUsedIcon();
+                return _markerUsed;
             }
         }
 
@@ -390,6 +442,138 @@ namespace CaiYaStation
 
         private Sprite CreateIcon()
         {
+            var loaded = TryLoadIconResource();
+            if (loaded != null) return loaded;
+            return CreateProceduralIcon();
+        }
+
+        /// <summary>
+        /// The marker art ships as marker.png next to the mod dll. A hand-drawn sticker keeps the
+        /// awning stripes, the wooden sign lettering and the crate shading that 64px of procedural
+        /// pixels cannot express; the procedural badge stays as the fallback for a broken package.
+        /// </summary>
+        private Sprite? TryLoadIconResource()
+        {
+            return TryLoadSprite("marker.png", "CaiYaStation.MarkerTexture", "CaiYaStation.Marker", out _iconTexture);
+        }
+
+        /// <summary>
+        /// Loads the small-size marker art. Falls back to the full sticker so a package that
+        /// shipped without the reduced art still shows a station rather than a procedural badge.
+        /// </summary>
+        private Sprite CreateMarkerIcon()
+        {
+            var loaded = TryLoadSprite("marker-map.png", "CaiYaStation.MarkerMapTexture",
+                "CaiYaStation.MarkerMap", out _markerTexture);
+            if (loaded != null) return loaded;
+            _log("Station marker map icon missing, falling back to the full sticker");
+            return Icon;
+        }
+
+        private Sprite CreateMarkerUsedIcon()
+        {
+            var baseIcon = MarkerIcon;
+            if (_markerTexture == null) return IconUsed;
+            var sprite = CreateGreySprite(_markerTexture, "CaiYaStation.MarkerMapUsedTexture",
+                "CaiYaStation.MarkerMapUsed", out _markerUsedTexture);
+            return sprite ?? baseIcon;
+        }
+
+        private Sprite? TryLoadSprite(string fileName, string textureName, string spriteName,
+            out Texture2D? textureOut)
+        {
+            textureOut = null;
+            if (string.IsNullOrEmpty(_resourceDirectory)) return null;
+            var path = Path.Combine(_resourceDirectory, fileName);
+            try
+            {
+                if (!File.Exists(path)) return null;
+                var bytes = File.ReadAllBytes(path);
+                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+                {
+                    hideFlags = HideFlags.DontSave,
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                if (!texture.LoadImage(bytes))
+                {
+                    UnityEngine.Object.Destroy(texture);
+                    _log("Station marker icon decode failed: " + path);
+                    return null;
+                }
+                texture.name = textureName;
+                textureOut = texture;
+                var sprite = Sprite.Create(texture,
+                    new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f));
+                sprite.name = spriteName;
+                _log("Station marker icon from " + fileName + " " + texture.width + "x" + texture.height);
+                return sprite;
+            }
+            catch (Exception exception)
+            {
+                _log("Station marker icon load failed: " + fileName + ": " + exception.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Desaturated copy of the marker art for stations that already shipped this raid. The
+        /// minimap multiplies PointOfInterest.Color into the sprite, so tinting cannot express
+        /// "used" without also staining the awning; a grey sprite can.
+        /// </summary>
+        private Sprite CreateUsedIcon()
+        {
+            var baseIcon = Icon;
+            if (_iconTexture == null) return baseIcon;
+            var sprite = CreateGreySprite(_iconTexture, "CaiYaStation.MarkerUsedTexture",
+                "CaiYaStation.MarkerUsed", out _iconUsedTexture);
+            return sprite ?? baseIcon;
+        }
+
+        /// <summary>
+        /// Desaturated copy of a marker texture. The minimap multiplies PointOfInterest.Color
+        /// into the sprite, so tinting cannot express "used" without also staining the awning;
+        /// a grey sprite can.
+        /// </summary>
+        private Sprite? CreateGreySprite(Texture2D source, string textureName, string spriteName,
+            out Texture2D? textureOut)
+        {
+            textureOut = null;
+            try
+            {
+                var pixels = source.GetPixels32();
+                for (var index = 0; index < pixels.Length; index++)
+                {
+                    var pixel = pixels[index];
+                    if (pixel.a == 0) continue;
+                    var luminance = pixel.r * 0.299f + pixel.g * 0.587f + pixel.b * 0.114f;
+                    var grey = Mathf.Clamp(Mathf.RoundToInt(luminance * 0.70f) + 22, 0, 255);
+                    pixels[index] = new Color32((byte)grey, (byte)grey, (byte)grey, pixel.a);
+                }
+                var texture = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false)
+                {
+                    hideFlags = HideFlags.DontSave,
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                texture.name = textureName;
+                texture.SetPixels32(pixels);
+                texture.Apply(false);
+                textureOut = texture;
+                var sprite = Sprite.Create(texture,
+                    new Rect(0f, 0f, texture.width, texture.height), new Vector2(0.5f, 0.5f));
+                sprite.name = spriteName;
+                return sprite;
+            }
+            catch (Exception exception)
+            {
+                _log("Station marker grey variant failed: " + exception.Message);
+                return null;
+            }
+        }
+
+        private Sprite CreateProceduralIcon()
+        {
             const int size = 64;
             const float centre = 31.5f;
             _iconTexture = new Texture2D(size, size, TextureFormat.RGBA32, false)
@@ -550,9 +734,21 @@ namespace CaiYaStation
                 if (material != null) UnityEngine.Object.Destroy(material);
             if (_icon != null) UnityEngine.Object.Destroy(_icon);
             if (_iconTexture != null) UnityEngine.Object.Destroy(_iconTexture);
+            if (_iconUsed != null) UnityEngine.Object.Destroy(_iconUsed);
+            if (_iconUsedTexture != null) UnityEngine.Object.Destroy(_iconUsedTexture);
+            if (_markerIcon != null) UnityEngine.Object.Destroy(_markerIcon);
+            if (_markerTexture != null) UnityEngine.Object.Destroy(_markerTexture);
+            if (_markerUsed != null) UnityEngine.Object.Destroy(_markerUsed);
+            if (_markerUsedTexture != null) UnityEngine.Object.Destroy(_markerUsedTexture);
             if (_signFont != null) UnityEngine.Object.Destroy(_signFont);
             _icon = null;
             _iconTexture = null;
+            _iconUsed = null;
+            _iconUsedTexture = null;
+            _markerIcon = null;
+            _markerTexture = null;
+            _markerUsed = null;
+            _markerUsedTexture = null;
             _signFont = null;
         }
     }
@@ -831,18 +1027,21 @@ namespace CaiYaStation
             return !Physics.Raycast(from, delta / distance, distance, GroundMask, QueryTriggerInteraction.Ignore);
         }
 
-        internal static bool Find(Vector3 origin, Vector3 candidate, CharacterMainControl? actor, float maxSlope,
-            float yaw, out Vector3 result, out float pathLength, out string reason)
+        /// <summary>
+        /// Geometry-only half of the placement probe: everything a candidate must satisfy before
+        /// it is worth spending a path calculation on. Returns the point the booth would stand on.
+        ///
+        /// The station has to stand on a node the game itself considers walkable, so the point
+        /// that gets built is the snapped node, not the raw candidate. That single change is
+        /// what kills the original bug: a candidate on a river surface or a railing top has no
+        /// walkable node under it, so snapping pulls the point onto the nearest real floor and
+        /// the gap between the two exposes how far off the anchor really was.
+        /// </summary>
+        internal static bool Resolve(Vector3 candidate, CharacterMainControl? actor, float maxSlope,
+            float yaw, out Vector3 stand, out string reason)
         {
-            result = default;
-            pathLength = float.MaxValue;
+            stand = default;
             reason = "";
-
-            // The station has to stand on a node the game itself considers walkable, so the point
-            // that gets built is the snapped node, not the raw candidate. That single change is
-            // what kills the original bug: a candidate on a river surface or a railing top has no
-            // walkable node under it, so snapping pulls the point onto the nearest real floor and
-            // the gap between the two exposes how far off the anchor really was.
             if (!PathProbe.TrySnap(candidate, out var snapped, out reason)) return false;
             var snapGap = Vector3.Distance(snapped, candidate);
             if (snapGap > PathProbe.SnapTolerance)
@@ -876,17 +1075,7 @@ namespace CaiYaStation
                 reason = "occupied";
                 return false;
             }
-            var stand = ground + Vector3.up * 0.03f;
-            if (actor != null)
-            {
-                if (!PathProbe.TryMeasure(origin, stand, out pathLength, out reason)) return false;
-                if (!PlacementPolicy.PathIsReasonable(pathLength, Vector3.Distance(origin, stand)))
-                {
-                    reason = "detour-" + pathLength.ToString("0") + "m";
-                    return false;
-                }
-            }
-            result = stand;
+            stand = ground + Vector3.up * 0.03f;
             return true;
         }
 

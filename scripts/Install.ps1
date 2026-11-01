@@ -22,6 +22,27 @@ if (-not (Test-Path -LiteralPath (Join-Path $game 'Duckov.exe'))) {
 $running = Get-Process -Name Duckov -ErrorAction SilentlyContinue
 if ($running) { throw 'Duckov is running. Fully exit the game before installing.' }
 
+# This script only copies artifacts\package, it never builds. Installing a package that is older
+# than the compiled output silently ships stale code, and the next in-game test then "proves"
+# that a fix does not work when the fix was never in the game. Refuse instead of guessing.
+$builtDll = Join-Path $projectRoot 'src\CaiYaStation\bin\Release\netstandard2.1\CaiYaStation.dll'
+$packagedDll = Join-Path $package 'CaiYaStation.dll'
+if ((Test-Path -LiteralPath $builtDll) -and (Test-Path -LiteralPath $packagedDll)) {
+    $built = Get-Item -LiteralPath $builtDll
+    $packaged = Get-Item -LiteralPath $packagedDll
+    if ($packaged.LastWriteTime -lt $built.LastWriteTime) {
+        $message = 'Package is stale: packaged CaiYaStation.dll is {0}, build output is {1}. Run scripts\Build.ps1 first.' -f
+            $packaged.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'),
+            $built.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
+        throw $message
+    }
+    $builtHash = (Get-FileHash -LiteralPath $builtDll -Algorithm SHA256).Hash
+    $packagedHash = (Get-FileHash -LiteralPath $packagedDll -Algorithm SHA256).Hash
+    if ($builtHash -ne $packagedHash) {
+        throw "Package is stale: packaged CaiYaStation.dll ($packagedHash) differs from the build output ($builtHash). Run scripts\Build.ps1 first."
+    }
+}
+
 $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
 $backup = Join-Path $projectRoot "artifacts\backups\before-install-$timestamp"
 if (Test-Path -LiteralPath $destination) {

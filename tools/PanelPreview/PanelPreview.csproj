@@ -18,8 +18,11 @@
     <Compile Include="..\..\src\CaiYaStation\PanelPainter.cs" Link="PanelPainter.cs" />
     <Compile Include="..\..\src\CaiYaStation\PanelRenderer.cs" Link="PanelRenderer.cs" />
     <Compile Include="..\..\src\CaiYaStation\ReceiptLayout.cs" Link="ReceiptLayout.cs" />
+    <Compile Include="..\..\src\CaiYaStation\ReceiptRenderer.cs" Link="ReceiptRenderer.cs" />
     <Compile Include="..\..\src\CaiYaStation\ShipmentView.cs" Link="ShipmentView.cs" />
+    <Compile Include="..\..\src\CaiYaStation.Domain\LossModel.cs" Link="Domain\LossModel.cs" />
     <Compile Include="..\..\src\CaiYaStation.Domain\Pricing.cs" Link="Domain\Pricing.cs" />
+    <Compile Include="..\..\src\CaiYaStation.Domain\Receipts.cs" Link="Domain\Receipts.cs" />
   </ItemGroup>
 
   <ItemGroup>

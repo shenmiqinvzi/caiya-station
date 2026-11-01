@@ -98,9 +98,9 @@ namespace CaiYaStation
 
             Header = new Rect(x, y, w, HeaderHeight);
             HeaderIcon = new Rect(x + 20, y + 18, 40, 40);
-            HeaderTitle = new Rect(x + 72, y + 6, 106, 30);
+            HeaderTitle = new Rect(x + 72, y + 4, 106, 34);
             HeaderBadge = new Rect(x + 186, y + 10, 64, 22);
-            HeaderSubtitle = new Rect(x + 72, y + 42, w - 150, 17);
+            HeaderSubtitle = new Rect(x + 72, y + 40, w - 150, 22);
             HeaderClose = new Rect(x + w - 54, y + 18, 34, 38);
             HeaderRule = new Rect(x + SidePadding, y + HeaderHeight - 1, w - SidePadding * 2, 1);
 

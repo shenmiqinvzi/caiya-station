@@ -3,118 +3,218 @@ using UnityEngine;
 namespace CaiYaStation
 {
     /// <summary>
-    /// Pure geometry for the delivery receipt sheet, kept free of IMGUI so it can be checked
-    /// offline (tools/PanelPreview) on every supported resolution.
+    /// Pure geometry for the delivery receipt sheet and the loss notice, kept free of IMGUI so it
+    /// can be checked offline (tools/PanelPreview) on every supported resolution.
     ///
-    /// The first version hard-coded the chip strip at y+84 with height 52 while each chip drew
-    /// three lines up to y+52, so the sub line was clipped by the card edge; the four chips and
-    /// the close button were also placed with absolute x offsets that ran off a narrow panel.
-    /// Here every band is derived from one vertical budget measured from both ends of the sheet,
-    /// and the chip strip is split evenly from the content width.
+    /// Layout, top to bottom: a header carrying the station sticker logo, the sheet title and the
+    /// three-state outcome badge; an order-info card of six labelled fields in three columns; a
+    /// strip of three stat cards (delivered / lost / paid); then the two goods tables, each of
+    /// which scrolls on its own; and finally the footer with the hint line and the close button.
+    /// Every band is derived from one vertical budget measured from both ends of the sheet, so a
+    /// new band cannot push the footer off the panel.
     /// </summary>
     internal readonly struct ReceiptLayout
     {
-        internal const float Padding = 24f;
-        internal const float HeaderHeight = 68f;
-        internal const float ChipTopGap = 16f;
-        internal const float ChipHeight = 66f;
-        internal const float ChipGap = 12f;
-        internal const float ChipLabelTop = 5f;
-        internal const float ChipValueTop = 21f;
-        internal const float ChipSubTop = 48f;
-        /// <summary>Bottom of the lowest chip line relative to the chip top.</summary>
-        internal const float ChipContentBottom = 64f;
-        internal const float ListGap = 14f;
-        internal const float ColumnGap = 12f;
-        internal const float ListTitleHeight = 40f;
-        internal const float ListFooterHeight = 22f;
-        internal const float ListRowHeight = 24f;
-        internal const float ListMinHeight = 72f;
-        internal const float NarrativeHeight = 44f;
-        internal const float NarrativeGap = 12f;
-        internal const float HeadlineHeight = 22f;
-        internal const float FlavorHeight = 20f;
-        internal const float ButtonHeight = 32f;
-        internal const float ButtonWidth = 100f;
-        internal const float BottomMargin = 14f;
-        internal const float MaxWidth = 760f;
-        internal const float MaxHeight = 570f;
-        internal const float ScreenMargin = 20f;
-        internal const float HeaderCloseWidth = 36f;
+        internal const float Padding = 20f;
+        internal const float HeaderHeight = 96f;
+        internal const float HeaderLogoSize = 56f;
+        internal const float HeaderLogoLeft = 18f;
+        internal const float HeaderLogoTop = 20f;
+        internal const float HeaderAccentWidth = 4f;
+        internal const float HeaderTitleLeft = 88f;
+        internal const float HeaderTitleTop = 16f;
+        internal const float HeaderTitleHeight = 34f;
+        internal const float HeaderSubtitleTop = 52f;
+        internal const float HeaderSubtitleHeight = 20f;
+        internal const float HeaderBadgeWidth = 108f;
+        internal const float HeaderBadgeHeight = 28f;
+        internal const float HeaderBadgeTop = 24f;
+        internal const float HeaderCloseWidth = 34f;
         internal const float HeaderCloseHeight = 34f;
         internal const float HeaderCloseTop = 16f;
-        internal const float HeaderSubtitleTop = 42f;
-        internal const float HeaderBadgeLeft = 150f;
-        internal const float HeaderBadgeTop = 17f;
-        internal const float HeaderBadgeWidth = 92f;
-        internal const float HeaderBadgeHeight = 24f;
+        internal const float SectionGap = 12f;
+        internal const float InfoHeight = 96f;
+        internal const float InfoTitleHeight = 30f;
+        internal const float InfoRowHeight = 28f;
+        internal const float InfoLabelWidth = 72f;
+        internal const float InfoColumnGap = 14f;
+        internal const float StatHeight = 100f;
+        internal const float StatGap = 12f;
+        internal const float StatLabelTop = 8f;
+        internal const float StatLabelHeight = 20f;
+        internal const float StatValueTop = 28f;
+        internal const float StatValueHeight = 26f;
+        internal const float StatSubTop = 56f;
+        internal const float StatSubHeight = 20f;
+        internal const float StatSub2Top = 76f;
+        internal const float StatSub2Height = 20f;
+        internal const float ListGap = 12f;
+        /// <summary>Title line plus the column header line, so neither collides with the first row.</summary>
+        internal const float ListTitleHeight = 46f;
+        internal const float ListTitleTop = 6f;
+        internal const float ListTitleTextHeight = 20f;
+        internal const float ListHeaderTop = 30f;
+        internal const float ListHeaderHeight = 14f;
+        internal const float ListFooterHeight = 22f;
+        internal const float ListRowHeight = 26f;
+        internal const float ListRowTextHeight = 24f;
+        internal const float LostHintHeight = 68f;
+        internal const float ListIconSize = 20f;
+        internal const float ListIconLeft = 10f;
+        internal const float ListStatusWidth = 74f;
+        internal const float ListTotalWidth = 88f;
+        internal const float ListUnitWidth = 76f;
+        internal const float ListCountWidth = 52f;
+        internal const float ListNameLeft = 38f;
+        /// <summary>Breathing room between the last column and the card edge, so status text is not flush.</summary>
+        internal const float ListRightPadding = 14f;
+        internal const float FooterHintHeight = 22f;
+        internal const float ButtonHeight = 40f;
+        internal const float ButtonWidth = 168f;
+        internal const float BottomMargin = 16f;
+        internal const float MaxWidth = 880f;
+        internal const float MaxHeight = 660f;
+        internal const float ScreenMargin = 20f;
 
         internal readonly Rect Panel;
         internal readonly Rect Header;
         internal readonly Rect HeaderAccent;
+        internal readonly Rect HeaderLogo;
         internal readonly Rect HeaderTitle;
-        internal readonly Rect HeaderBadge;
         internal readonly Rect HeaderSubtitle;
+        internal readonly Rect HeaderBadge;
         internal readonly Rect HeaderClose;
-        internal readonly Rect ChipOne;
-        internal readonly Rect ChipTwo;
-        internal readonly Rect ChipThree;
-        internal readonly Rect ChipFour;
+        internal readonly Rect InfoCard;
+        internal readonly Rect StatOne;
+        internal readonly Rect StatTwo;
+        internal readonly Rect StatThree;
         internal readonly Rect Delivered;
         internal readonly Rect Lost;
-        internal readonly Rect Headline;
-        internal readonly Rect Flavor;
+        internal readonly Rect FooterHint;
         internal readonly Rect Button;
+        /// <summary>Height of the delivered table; the lost table owns the rest of the budget.</summary>
         internal readonly float ListHeight;
 
-        private ReceiptLayout(Rect panel)
+        private ReceiptLayout(Rect panel, bool lostEmpty)
         {
             Panel = panel;
             Header = new Rect(panel.x, panel.y, panel.width, HeaderHeight);
-            HeaderAccent = new Rect(panel.x, panel.y, 4f, HeaderHeight);
-            HeaderTitle = new Rect(panel.x + 20f, panel.y + 10f, HeaderBadgeLeft - 28f, 32f);
-            HeaderBadge = new Rect(HeaderTitle.xMax + 8f, panel.y + HeaderBadgeTop, HeaderBadgeWidth, HeaderBadgeHeight);
-            HeaderSubtitle = new Rect(panel.x + 20f, panel.y + HeaderSubtitleTop, panel.width - 88f, 18f);
-            HeaderClose = new Rect(panel.xMax - HeaderCloseWidth - 18f, panel.y + HeaderCloseTop, HeaderCloseWidth, HeaderCloseHeight);
+            HeaderAccent = new Rect(panel.x, panel.y, HeaderAccentWidth, HeaderHeight);
+            HeaderLogo = new Rect(panel.x + HeaderLogoLeft, panel.y + HeaderLogoTop, HeaderLogoSize, HeaderLogoSize);
+            HeaderClose = new Rect(panel.xMax - Padding - HeaderCloseWidth, panel.y + HeaderCloseTop,
+                HeaderCloseWidth, HeaderCloseHeight);
+            HeaderBadge = new Rect(HeaderClose.x - HeaderBadgeWidth - 10f, panel.y + HeaderBadgeTop,
+                HeaderBadgeWidth, HeaderBadgeHeight);
+            HeaderTitle = new Rect(panel.x + HeaderTitleLeft, panel.y + HeaderTitleTop,
+                HeaderBadge.x - (panel.x + HeaderTitleLeft) - 10f, HeaderTitleHeight);
+            HeaderSubtitle = new Rect(panel.x + HeaderTitleLeft, panel.y + HeaderSubtitleTop,
+                HeaderBadge.x - (panel.x + HeaderTitleLeft) - 10f, HeaderSubtitleHeight);
 
             var contentWidth = panel.width - Padding * 2f;
-            var chipWidth = (contentWidth - ChipGap * 3f) / 4f;
-            var chipTop = panel.y + HeaderHeight + ChipTopGap;
-            ChipOne = new Rect(panel.x + Padding, chipTop, chipWidth, ChipHeight);
-            ChipTwo = new Rect(ChipOne.xMax + ChipGap, chipTop, chipWidth, ChipHeight);
-            ChipThree = new Rect(ChipTwo.xMax + ChipGap, chipTop, chipWidth, ChipHeight);
-            ChipFour = new Rect(ChipThree.xMax + ChipGap, chipTop, chipWidth, ChipHeight);
+            InfoCard = new Rect(panel.x + Padding, panel.y + HeaderHeight + SectionGap, contentWidth, InfoHeight);
+
+            var statTop = InfoCard.yMax + SectionGap;
+            var statWidth = (contentWidth - StatGap * 2f) / 3f;
+            StatOne = new Rect(panel.x + Padding, statTop, statWidth, StatHeight);
+            StatTwo = new Rect(StatOne.xMax + StatGap, statTop, statWidth, StatHeight);
+            StatThree = new Rect(StatTwo.xMax + StatGap, statTop, statWidth, StatHeight);
 
             Button = new Rect(panel.xMax - Padding - ButtonWidth, panel.yMax - BottomMargin - ButtonHeight,
                 ButtonWidth, ButtonHeight);
-            var narrativeTop = Button.y - NarrativeGap - NarrativeHeight;
-            Headline = new Rect(panel.x + Padding, narrativeTop, contentWidth, HeadlineHeight);
-            Flavor = new Rect(panel.x + Padding, narrativeTop + HeadlineHeight + 2f, contentWidth, FlavorHeight);
+            FooterHint = new Rect(panel.x + Padding, Button.y + (ButtonHeight - FooterHintHeight) * 0.5f,
+                contentWidth - ButtonWidth - 16f, FooterHintHeight);
 
-            var listTop = chipTop + ChipHeight + ListGap;
-            var available = narrativeTop - NarrativeGap - listTop;
-            ListHeight = Mathf.Max(ListMinHeight, available);
-            var listWidth = (contentWidth - ColumnGap) * 0.5f;
-            Delivered = new Rect(panel.x + Padding, listTop, listWidth, ListHeight);
-            Lost = new Rect(Delivered.xMax + ColumnGap, listTop, listWidth, ListHeight);
+            var listTop = statTop + StatHeight + ListGap;
+            var available = Button.y - SectionGap - listTop;
+            // Both tables are built from whole rows: title + column header + N rows + footer. Splitting
+            // the leftover space as fractions left a sliced half-row at the clip edge, so the budget is
+            // spent in rows and the remainder stays as breathing room above the footer.
+            var frame = ListTitleHeight + ListFooterHeight;
+            var budget = Mathf.Max(0f, available - ListGap);
+            var rowBudget = Mathf.Max(0, Mathf.FloorToInt((budget - frame * 2f) / ListRowHeight));
+            float deliveredHeight;
+            float lostHeight;
+            if (lostEmpty)
+            {
+                lostHeight = LostHintHeight;
+                var deliveredBudget = Mathf.Max(0f, budget - lostHeight);
+                var rows = Mathf.Max(0, Mathf.FloorToInt((deliveredBudget - frame) / ListRowHeight));
+                deliveredHeight = Mathf.Min(deliveredBudget, frame + rows * ListRowHeight);
+            }
+            else
+            {
+                var lostRows = rowBudget <= 1 ? rowBudget : Mathf.Clamp(Mathf.RoundToInt(rowBudget * 0.42f), 1,
+                    rowBudget - 1);
+                var deliveredRows = rowBudget - lostRows;
+                lostHeight = frame + lostRows * ListRowHeight;
+                deliveredHeight = frame + deliveredRows * ListRowHeight;
+            }
+
+            ListHeight = Mathf.Max(0f, deliveredHeight);
+            Delivered = new Rect(panel.x + Padding, listTop, contentWidth, ListHeight);
+            Lost = new Rect(panel.x + Padding, Delivered.yMax + ListGap, contentWidth, Mathf.Max(0f, lostHeight));
         }
 
-        internal static ReceiptLayout Compute(float logicalWidth, float logicalHeight)
+        internal static ReceiptLayout Compute(float logicalWidth, float logicalHeight) =>
+            Compute(logicalWidth, logicalHeight, false);
+
+        internal static ReceiptLayout Compute(float logicalWidth, float logicalHeight, bool lostEmpty)
         {
             var width = Mathf.Min(MaxWidth, logicalWidth - ScreenMargin * 2f);
             var height = Mathf.Min(MaxHeight, logicalHeight - ScreenMargin * 2f);
-            if (width < 320f) width = 320f;
-            if (height < 300f) height = 300f;
+            if (width < 360f) width = 360f;
+            if (height < 320f) height = 320f;
             var panel = new Rect((logicalWidth - width) * 0.5f, (logicalHeight - height) * 0.5f, width, height);
-            return new ReceiptLayout(panel);
+            return new ReceiptLayout(panel, lostEmpty);
         }
 
-        /// <summary>Rows that fit in a list card without touching the truncation footer.</summary>
+        /// <summary>Rows that fit in a goods table without touching the truncation footer.</summary>
         internal static int ListCapacity(float height)
         {
             var usable = height - ListTitleHeight - ListFooterHeight;
             if (usable <= 0f) return 0;
             return Mathf.FloorToInt(usable / ListRowHeight);
+        }
+
+        /// <summary>
+        /// The scrolling window of a goods table: the card minus its title and footer, snapped down
+        /// to whole rows so a half-visible row never shows sliced glyphs at the clip edge.
+        /// </summary>
+        internal static Rect ListView(Rect card)
+        {
+            var usable = card.height - ListTitleHeight - ListFooterHeight;
+            var rows = usable <= 0f ? 0f : Mathf.Floor(usable / ListRowHeight);
+            return new Rect(card.x, card.y + ListTitleHeight, card.width, rows * ListRowHeight);
+        }
+
+        /// <summary>Row rect for one goods table, in the table's own scroll order.</summary>
+        internal static Rect ListRow(Rect card, int index) =>
+            new Rect(card.x, card.y + ListTitleHeight + index * ListRowHeight, card.width, ListRowTextHeight);
+
+        /// <summary>Columns of one goods row: icon, name, count, unit, total, status.</summary>
+        internal static void ListColumns(Rect row, out Rect icon, out Rect name, out Rect count, out Rect unit,
+            out Rect total, out Rect status)
+        {
+            icon = new Rect(row.x + ListIconLeft, row.y + (row.height - ListIconSize) * 0.5f, ListIconSize,
+                ListIconSize);
+            status = new Rect(row.xMax - ListRightPadding - ListStatusWidth, row.y, ListStatusWidth, row.height);
+            total = new Rect(status.x - ListTotalWidth, row.y, ListTotalWidth, row.height);
+            unit = new Rect(total.x - ListUnitWidth, row.y, ListUnitWidth, row.height);
+            count = new Rect(unit.x - ListCountWidth, row.y, ListCountWidth, row.height);
+            var nameLeft = row.x + ListNameLeft;
+            name = new Rect(nameLeft, row.y, Mathf.Max(0f, count.x - nameLeft - 8f), row.height);
+        }
+
+        /// <summary>Six info fields in three columns: label rect on the left, value on the right.</summary>
+        internal void InfoField(int index, out Rect label, out Rect value)
+        {
+            var column = index % 3;
+            var line = index / 3;
+            var columnWidth = (InfoCard.width - Padding * 2f - InfoColumnGap * 2f) / 3f;
+            var x = InfoCard.x + Padding + column * (columnWidth + InfoColumnGap);
+            var y = InfoCard.y + InfoTitleHeight + 4f + line * InfoRowHeight;
+            label = new Rect(x, y, InfoLabelWidth, ListRowTextHeight);
+            value = new Rect(x + InfoLabelWidth, y, Mathf.Max(0f, columnWidth - InfoLabelWidth), ListRowTextHeight);
         }
     }
 }
