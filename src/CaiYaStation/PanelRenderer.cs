@@ -85,7 +85,7 @@ namespace CaiYaStation
 
         private void DrawList(ShipmentView v, PanelLayout l, Vector2 mouse, PanelRenderResult r)
         {
-            _p.Text(l.ListTitle, "背包物品", PaintText.Section);
+            _p.Text(l.ListTitle, "背包与装备", PaintText.Section);
             _p.Text(l.ListCapacity,
                 PanelText.Fit(_p, v.CapacityText, l.ListCapacity.width, PaintText.Small),
                 PaintText.Small, TextAnchor.MiddleRight);
@@ -99,7 +99,7 @@ namespace CaiYaStation
                 if (v.Rows.Count == 0)
                 {
                     var empty = new Rect(l.ListView.x, l.ListView.y + l.ListView.height * 0.5f - 28f, l.ListView.width, 22f);
-                    _p.Text(empty, "背包里没有可寄的东西", PaintText.Label, TextAnchor.MiddleCenter, _c.TextDim);
+                    _p.Text(empty, "背包和装备里都没有可寄的东西", PaintText.Label, TextAnchor.MiddleCenter, _c.TextDim);
                     _p.Text(new Rect(empty.x, empty.y + 24f, empty.width, 18f), "先去搜刮，再回来寄",
                         PaintText.Tiny, TextAnchor.MiddleCenter, _c.TextFaint);
                 }
@@ -157,29 +157,38 @@ namespace CaiYaStation
             var cells = Cells(rect);
             var nameColor = row.Eligible ? _c.Text : _c.TextFaint;
             var nameText = PanelText.Fit(_p, row.Name, cells.Name.width, PaintText.RowName);
-            if (row.Eligible)
+            // Worn gear gets the small print too: it is shippable, but the player has to know the
+            // item comes off the equipment slot.
+            var note = !row.Eligible ? "不可寄 · " + row.BlockedReason
+                : row.Equipped ? "装备中 · 发货时自动卸下" : null;
+            if (note == null)
             {
                 _p.Text(new Rect(cells.Name.x, rect.y + 8f, cells.Name.width, 22f), nameText, PaintText.RowName,
                     TextAnchor.MiddleLeft, nameColor);
             }
             else
             {
-                _p.Text(new Rect(cells.Name.x, rect.y + 4f, cells.Name.width, 20f), nameText, PaintText.RowName,
+                _p.Text(new Rect(cells.Name.x, rect.y + 4f, cells.Name.width, 18f), nameText, PaintText.RowName,
                     TextAnchor.MiddleLeft, nameColor);
                 _p.Text(new Rect(cells.Name.x, rect.y + 22f, cells.Name.width, 16f),
-                    PanelText.Fit(_p, "不可寄 · " + row.BlockedReason, cells.Name.width, PaintText.Tiny),
-                    PaintText.Tiny, TextAnchor.MiddleLeft, _c.Danger);
+                    PanelText.Fit(_p, note, cells.Name.width, PaintText.Tiny),
+                    PaintText.Tiny, TextAnchor.MiddleLeft, row.Eligible ? _c.TextDim : _c.Danger);
             }
 
-            _p.Text(new Rect(cells.Count.x, rect.y + 8f, cells.Count.width, 22f),
+            // Keep the numbers on the item's own line when the row carries a second line of small
+            // print, so a two-line row still reads as one item instead of a floating block.
+            var valueY = note == null ? rect.y + 8f : rect.y + 4f;
+            var valueHeight = note == null ? 22f : 18f;
+
+            _p.Text(new Rect(cells.Count.x, valueY, cells.Count.width, valueHeight),
                 PanelText.Fit(_p, row.CountText, cells.Count.width, PaintText.RowValue),
                 PaintText.RowValue, TextAnchor.MiddleRight, row.Eligible ? _c.TextDim : _c.TextFaint);
-            _p.Text(new Rect(cells.Unit.x, rect.y + 8f, cells.Unit.width, 22f), row.UnitValue.ToString("N0"),
+            _p.Text(new Rect(cells.Unit.x, valueY, cells.Unit.width, valueHeight), row.UnitValue.ToString("N0"),
                 PaintText.RowValue, TextAnchor.MiddleRight, row.Eligible ? _c.TextDim : _c.TextFaint);
-            _p.Text(new Rect(cells.Total.x, rect.y + 8f, cells.Total.width, 22f), row.GoodsValue.ToString("N0"),
+            _p.Text(new Rect(cells.Total.x, valueY, cells.Total.width, valueHeight), row.GoodsValue.ToString("N0"),
                 PaintText.RowStrong, TextAnchor.MiddleRight, row.Eligible ? _c.Text : _c.TextFaint);
-            _p.Text(new Rect(cells.Weight.x, rect.y + 8f, cells.Weight.width, 22f), row.WeightKg.ToString("0.##") + "kg",
-                PaintText.RowValue, TextAnchor.MiddleRight, row.Eligible ? _c.TextFaint : _c.TextFaint);
+            _p.Text(new Rect(cells.Weight.x, valueY, cells.Weight.width, valueHeight), row.WeightKg.ToString("0.##") + "kg",
+                PaintText.RowValue, TextAnchor.MiddleRight, _c.TextFaint);
 
             if (hovered)
             {
@@ -532,7 +541,10 @@ namespace CaiYaStation
                     rect.width - 28f, PaintText.TooltipLine), PaintText.TooltipLine);
             cursor += 18f;
             if (row.Eligible)
-                _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 18f), "可寄送　·　单击加入运送清单",
+                _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 18f),
+                    row.Equipped
+                        ? "装备中 · 可寄送，发货时自动卸下"
+                        : "可寄送　·　单击加入运送清单",
                     PaintText.TooltipLine, TextAnchor.MiddleLeft, _c.Good);
             else
                 _p.Text(new Rect(rect.x + 14f, cursor, rect.width - 28f, 18f),

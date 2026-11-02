@@ -41,6 +41,7 @@
   },
   "Protection": {
     "AllowWeapons": true,
+    "AllowEquipped": true,
     "ProtectedTags": [ "Quest", "Key", "SpecialKey", "Cash", "Continer", "Backpack", "Character" ],
     "ContainerTags": [ "Continer", "Backpack" ],
     "CurrencyTags": [ "Cash" ],

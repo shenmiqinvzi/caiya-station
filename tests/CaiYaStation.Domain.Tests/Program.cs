@@ -105,7 +105,11 @@ Add("currency tag is protected", () => Assert.Equal("现金/货币类物品不�
 Add("currency type id is protected", () => Assert.Equal("现金/货币类物品不可寄送", ItemEligibility.BlockReason(Item(451, 1), protection)));
 Add("container inventory is protected", () => Assert.Equal("容器类物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, container: true), protection)));
 Add("container tag is protected", () => Assert.Equal("容器类物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, tags: "Continer"), protection)));
-Add("equipped items are protected", () => Assert.Equal("装备中的物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, equipped: true), protection)));
+// Worn gear is shippable by default (0.2.4): weapons and armor are the heaviest part of a load.
+// The old blanket refusal is still reachable through the config for anyone who wants it back.
+var noEquipped = new ProtectionRules { AllowEquipped = false };
+Add("worn gear can be refused again by config", () => Assert.Equal("装备中的物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, equipped: true), noEquipped)));
+Add("worn gear ships by default", () => Assert.Equal(null, ItemEligibility.BlockReason(Item(11, 100, equipped: true), protection)));
 Add("undroppable items are protected", () => Assert.Equal("该物品不可丢弃，不能寄送", ItemEligibility.BlockReason(Item(10, 100, canDrop: false), protection)));
 Add("quest name prefix is protected", () => Assert.Equal("任务/钥匙/唯一物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, name: "Item_Quest_Watch"), protection)));
 Add("deliver box prefix is protected", () => Assert.Equal("任务/钥匙/唯一物品不可寄送", ItemEligibility.BlockReason(Item(10, 100, name: "DeliverBox_2102"), protection)));
@@ -128,9 +132,19 @@ Add("non-wielded container tag is still refused", () =>
 Add("quest weapon stays protected", () =>
     Assert.Equal("任务/钥匙/唯一物品不可寄送",
         ItemEligibility.BlockReason(Item(305, 3956, handHeld: true, tags: new[] { "Continer", "Quest" }), protection)));
-Add("equipped weapon stays protected", () =>
+Add("worn weapon ships with its slot cleared", () =>
+    Assert.Equal(null, ItemEligibility.BlockReason(Item(306, 3956, equipped: true, handHeld: true), protection)));
+Add("worn weapon is refused again when equipped shipping is off", () =>
     Assert.Equal("装备中的物品不可寄送",
-        ItemEligibility.BlockReason(Item(306, 3956, equipped: true, handHeld: true), protection)));
+        ItemEligibility.BlockReason(Item(309, 3956, equipped: true, handHeld: true), noEquipped)));
+Add("worn armor ships", () =>
+    Assert.Equal(null, ItemEligibility.BlockReason(Item(310, 1200, equipped: true), protection)));
+Add("worn backpack is still a container", () =>
+    Assert.Equal("容器类物品不可寄送",
+        ItemEligibility.BlockReason(Item(311, 200, equipped: true, container: true, tags: "Backpack"), protection)));
+Add("worn quest item is still protected", () =>
+    Assert.Equal("任务/钥匙/唯一物品不可寄送",
+        ItemEligibility.BlockReason(Item(312, 3956, equipped: true, handHeld: true, tags: new[] { "Continer", "Quest" }), protection)));
 Add("weapons can be refused again by config", () =>
 {
     var strict = new ProtectionRules { AllowWeapons = false };

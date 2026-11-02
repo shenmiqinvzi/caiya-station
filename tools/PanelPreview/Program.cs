@@ -30,6 +30,7 @@ internal static class Program
 
         CheckLayouts(failures);
         CheckReceipt(failures);
+        CheckSliceSeams(failures);
         if (failures.Count == 0)
             Console.WriteLine("Receipt layout check passed: 8 sizes x 2 loss states, header/info/stats/tables/footer ordered.");
 
@@ -102,7 +103,8 @@ internal static class Program
             return 1;
         }
 
-        Console.WriteLine("Panel layout check passed: 4 sizes, 4 scenes, 3 receipt scenes, no overlapping bands or text.");
+        Console.WriteLine("Panel layout check passed: 4 sizes, 4 scenes, 3 receipt scenes, no overlapping bands or text;");
+        Console.WriteLine("nine-slice cuts sit on whole device pixels at 0.8-1.5 GUI scale, so no seam shows.");
         Console.WriteLine("Wrote " + Path.Combine(outDir, "panel-*.json") + " and receipt-*.json");
         return 0;
     }
@@ -115,6 +117,73 @@ internal static class Program
         var renderer = new PanelRenderer(palette, painter);
         return renderer.Draw(view, layout, mouse, width, height);
     }
+
+    /// <summary>
+    /// Every rounded shape in the panel is a nine-slice draw: nine quads that have to meet
+    /// exactly. They only do when the edges they share land on whole screen pixels, and the
+    /// GUI matrix (Screen.height / 1080, clamped to 0.8–1.5) means a 9px corner usually does
+    /// not — that is the pale hairline across 确认发货 and across the × close button. Check the
+    /// nine cuts tile the rect at the scales the game really runs: whole-pixel edges, corners
+    /// meeting their edges, and no gap or overlap left over.
+    /// </summary>
+    private static void CheckSliceSeams(List<string> failures)
+    {
+        var scales = new[] { 1f, 1.5f, 0.8f, 0.9934f, 1.2345f };
+        var rects = new[]
+        {
+            new Rect(844.6f, 689.4f, 152f, 34f),   // 确认发货: 9px radius, off the pixel grid
+            new Rect(861.3f, 18.7f, 34f, 38f),     // × close: same radius, different parity
+            new Rect(180.5f, 50.5f, 920f, 700f),   // panel body: 18px radius at panel size
+            new Rect(200.4f, 664.1f, 880f, 8f),    // risk track: radius taller than the rect
+            new Rect(12.2f, 30.7f, 9f, 6f)         // smaller than its two corner bands
+        };
+        var parts = new Rect[9];
+        var uvs = new Rect[9];
+        foreach (var scale in scales)
+        {
+            foreach (var rect in rects)
+            {
+                var tag = "slice " + scale.ToString("0.####", Inv) + " " + Describe(rect);
+                PaintGeometry.Slice(rect, 36, 36, 9, scale, parts, uvs);
+
+                var covered = 0f;
+                for (var i = 0; i < parts.Length; i++)
+                {
+                    covered += parts[i].width * parts[i].height;
+                    if (!Whole(parts[i].xMin * scale) || !Whole(parts[i].xMax * scale)
+                        || !Whole(parts[i].yMin * scale) || !Whole(parts[i].yMax * scale))
+                        failures.Add(tag + ": quad " + i + " " + Describe(parts[i])
+                                     + " does not sit on whole device pixels");
+                }
+
+                var width = Mathf.Round(rect.xMax * scale) - Mathf.Round(rect.x * scale);
+                var height = Mathf.Round(rect.yMax * scale) - Mathf.Round(rect.y * scale);
+                var expected = width * height / (scale * scale);
+                // Relative tolerance: a panel sized rect is ~6.4e5 logical px² and single
+                // precision only carries about seven significant digits.
+                if (Mathf.Abs(covered - expected) > Mathf.Max(0.05f, expected * 1e-5f))
+                    failures.Add(tag + ": the nine quads cover " + covered.ToString("0.###", Inv)
+                                 + " of " + expected.ToString("0.###", Inv) + " — a gap or an overlap is left over");
+
+                if (!Same(parts[0].xMax, parts[4].xMin) || !Same(parts[4].xMax, parts[1].xMin)
+                    || !Same(parts[0].yMax, parts[6].yMin) || !Same(parts[6].xMax, parts[8].xMin)
+                    || !Same(parts[4].yMax, parts[8].yMin) || !Same(parts[8].yMax, parts[5].yMin)
+                    || !Same(parts[2].yMin, parts[6].yMax) || !Same(parts[1].yMax, parts[7].yMin)
+                    || !Same(parts[3].xMin, parts[7].xMin) || !Same(parts[2].xMax, parts[5].xMin))
+                    failures.Add(tag + ": a corner and the edge beside it do not share their cut");
+            }
+        }
+
+        // The fixtures only prove anything while they really do land between pixels: the old cut
+        // (rect + 9 logical px, no rounding) must fall off the grid at the 0.9934 scale.
+        var oldCut = (844.6f + 9f) * 0.9934f;
+        if (Whole(oldCut))
+            failures.Add("slice: the fixture no longer lands between pixels; move the rect by a fraction");
+    }
+
+    private static bool Whole(float device) => Mathf.Abs(device - Mathf.Round(device)) <= 0.002f;
+
+    private static bool Same(float a, float b) => Mathf.Abs(a - b) <= 0.002f;
 
     private static void CheckHits(PanelRenderResult result, PanelLayout layout, List<string> failures, string tag)
     {
@@ -417,6 +486,9 @@ internal static class Program
         };
 
         view.Rows.Add(Row(1, "土豆", 1, 230, 0.18, 1, false));
+        // Worn gear shows up in the same list as the backpack, with a second line of small print.
+        // Keep one near the top so every recorded scene actually paints that two-line row.
+        view.Rows.Add(Row(16, "MP5 冲锋枪", 1, 3956, 2.85, 4, false, equipped: true));
         view.Rows.Add(Row(2, "焗豆罐头", 3, 102, 1.17, 1, false));
         view.Rows.Add(Row(3, "焗豆罐头", 3, 102, 1.17, 1, false));
         view.Rows.Add(Row(4, "焗豆罐头", 2, 102, 0.78, 1, false));
@@ -428,7 +500,7 @@ internal static class Program
         view.Rows.Add(Row(10, "瓶装水", 1, 375, 0.5, 1, false));
         view.Rows.Add(Row(11, "瓶装水", 1, 375, 0.5, 1, false));
         view.Rows.Add(Row(12, "止血绷带", 3, 80, 0.15, 2, false));
-        view.Rows.Add(Row(13, "五级防弹衣", 1, 5827, 5.88, 7, false));
+        view.Rows.Add(Row(13, "五级防弹衣", 1, 5827, 5.88, 7, false, equipped: true));
         view.Rows.Add(Row(14, "狗牌", 1, 35, 0.18, 1, false));
         view.Rows.Add(Row(15, "任务信件", 1, 60, 0.1, 1, true));
 
@@ -512,7 +584,8 @@ internal static class Program
         return view;
     }
 
-    private static ShipmentRowView Row(int id, string name, int stack, int unit, double weight, int quality, bool blocked)
+    private static ShipmentRowView Row(int id, string name, int stack, int unit, double weight, int quality, bool blocked,
+        bool equipped = false)
     {
         return new ShipmentRowView
         {
@@ -523,6 +596,7 @@ internal static class Program
             GoodsValue = (long)unit * stack,
             WeightKg = weight,
             Quality = quality,
+            Equipped = equipped,
             Description = blocked ? "" : name + "：搜刮来的物资，寄回地堡后可以在自提点领取。",
             BlockedReason = blocked ? "任务/钥匙/唯一物品不可寄送" : null
         };

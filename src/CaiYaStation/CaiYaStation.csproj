@@ -3,7 +3,7 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>CaiYaStation</AssemblyName>
     <RootNamespace>CaiYaStation</RootNamespace>
-    <Version>0.2.2</Version>
+    <Version>0.2.4</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>

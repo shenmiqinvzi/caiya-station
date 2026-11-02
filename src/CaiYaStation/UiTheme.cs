@@ -288,35 +288,10 @@ namespace CaiYaStation
 
         /// <summary>Nine-slice draw so a 72px rounded texture keeps its corner radius at panel size.</summary>
         private static void DrawSliced(Rect rect, Texture2D texture, int border)
-        {
-            if (texture == null) return;
-            var width = texture.width;
-            var height = texture.height;
-            var slice = Mathf.Clamp(border, 0, Mathf.Min(width, height) / 2 - 1);
-            var left = Mathf.Min(slice, rect.width * 0.5f);
-            var right = Mathf.Min(slice, rect.width * 0.5f);
-            var top = Mathf.Min(slice, rect.height * 0.5f);
-            var bottom = Mathf.Min(slice, rect.height * 0.5f);
-            var u0 = 0f;
-            var u1 = slice / (float)width;
-            var u2 = 1f - u1;
-            var v0 = 0f;
-            var v1 = slice / (float)height;
-            var v2 = 1f - v1;
-
-            // Corners.
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x, rect.y, left, top), texture, new Rect(u0, v2, u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.xMax - right, rect.y, right, top), texture, new Rect(u2, v2, u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x, rect.yMax - bottom, left, bottom), texture, new Rect(u0, v0, u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.xMax - right, rect.yMax - bottom, right, bottom), texture, new Rect(u2, v0, u1, v1));
-            // Edges.
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x + left, rect.y, rect.width - left - right, top), texture, new Rect(u1, v2, u2 - u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x + left, rect.yMax - bottom, rect.width - left - right, bottom), texture, new Rect(u1, v0, u2 - u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x, rect.y + top, left, rect.height - top - bottom), texture, new Rect(u0, v1, u1, v2 - v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.xMax - right, rect.y + top, right, rect.height - top - bottom), texture, new Rect(u2, v1, u1, v2 - v1));
-            // Centre.
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x + left, rect.y + top, rect.width - left - right, rect.height - top - bottom), texture, new Rect(u1, v1, u2 - u1, v2 - v1));
-        }
+            // Same slicing as the panel painter, including its whole-pixel cut grid: two
+            // nine-slice implementations that round differently would leave the seam on one of
+            // them, which is exactly how the × close button ended up with a hairline across it.
+            => PaintGeometry.DrawSliced(rect, texture, border);
 
         internal void DrawCheck(Rect rect, bool selected)
         {

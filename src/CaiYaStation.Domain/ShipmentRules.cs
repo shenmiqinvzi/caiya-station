@@ -34,6 +34,16 @@ namespace CaiYaStation.Domain
         /// a caliber) skip the container rule; quest/key/cash protection still applies.
         /// </summary>
         public bool AllowWeapons { get; set; } = true;
+
+        /// <summary>
+        /// Worn gear (primary/secondary/melee weapon, armor, helmet, mask, headset) lives in a
+        /// character slot, not in the backpack inventory, so it used to be invisible to the panel
+        /// and — when it did show up — refused as "装备中的物品". Weapons and armor are the
+        /// heaviest thing a player carries; when true they may be shipped and are unplugged from
+        /// their slot at delivery time. Backpacks stay refused by the container rule and
+        /// quest/key/cash protection is unchanged.
+        /// </summary>
+        public bool AllowEquipped { get; set; } = true;
     }
 
     public static class ItemEligibility
@@ -48,7 +58,7 @@ namespace CaiYaStation.Domain
             // so the stack is refused instead of silently slipping past protection.
             if (item.ProtectionCheckFailed) return "物品信息读取失败，为保护任务/钥匙类物品已禁止寄送";
             if (item.StackCount <= 0) return "数量异常，不能寄送";
-            if (item.IsEquipped) return "装备中的物品不可寄送";
+            if (item.IsEquipped && !rules.AllowEquipped) return "装备中的物品不可寄送";
             if (rules.ProtectedTypeIds.Contains(item.TypeId)) return "现金/货币类物品不可寄送";
             // Guns carry the game's "Continer" tag because they accept attachments; without this
             // exemption a rifle is refused as a container while every other container still is.

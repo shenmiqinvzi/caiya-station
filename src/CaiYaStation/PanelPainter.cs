@@ -187,31 +187,121 @@ namespace CaiYaStation
 
     internal static class PaintGeometry
     {
+        /// <summary>
+        /// Device pixels per logical pixel, as set by ModBehaviour.OnGUI (Screen.height / 1080,
+        /// clamped to 0.8–1.5).
+        /// </summary>
+        internal static float DeviceScale
+        {
+            get
+            {
+                var scale = GUI.matrix.m00;
+                return scale > 0.0001f ? scale : 1f;
+            }
+        }
+
+        /// <summary>
+        /// Where the nine quads of a slice draw start and end, in <em>device</em> pixels.
+        ///
+        /// A nine-slice is nine quads that have to meet exactly. They only meet exactly when
+        /// their shared edges land on whole screen pixels, and they usually do not: the panel is
+        /// drawn under GUI.matrix scaled by Screen.height / 1080, so on a 1073px window one
+        /// logical pixel is 0.9934 screen pixels and a 9px corner ends at x + 8.94. IMGUI rounds
+        /// each quad on its own, so the two quads that share that edge come out a fraction of a
+        /// pixel apart; what shows through the gap is the panel behind the shape. That is the
+        /// pale line straight across 确认发货 and across the × close button — a seam, not a
+        /// decoration. (When the rounding goes the other way the two quads overlap instead and
+        /// the seam reads as a darker line.) Rounding the outer rect and both cut lines to whole
+        /// pixels removes the seam: every edge is shared exactly, so there is no gap to see
+        /// through and nothing to blend twice.
+        /// </summary>
+        internal readonly struct SliceCuts
+        {
+            /// <summary>Left/top/right/bottom edge of the whole shape, in device pixels.</summary>
+            internal readonly float X0, Y0, X1, Y1;
+
+            /// <summary>Thickness of the corner band, in device pixels.</summary>
+            internal readonly float CutX, CutY;
+
+            /// <summary>Corner band of the texture, in texels.</summary>
+            internal readonly int Slice;
+
+            internal SliceCuts(Rect rect, int textureWidth, int textureHeight, int border, float scale)
+            {
+                Slice = Mathf.Clamp(border, 0, Mathf.Min(textureWidth, textureHeight) / 2 - 1);
+                var cut = Mathf.Round(Slice * scale);
+                X0 = Mathf.Round(rect.x * scale);
+                Y0 = Mathf.Round(rect.y * scale);
+                X1 = Mathf.Round(rect.xMax * scale);
+                Y1 = Mathf.Round(rect.yMax * scale);
+                // A shape narrower than two corner bands keeps the bands equal and lets the
+                // middle strip collapse, which is what a 8px tall pill needs.
+                CutX = Mathf.Max(0f, Mathf.Min(cut, Mathf.Floor((X1 - X0) * 0.5f)));
+                CutY = Mathf.Max(0f, Mathf.Min(cut, Mathf.Floor((Y1 - Y0) * 0.5f)));
+            }
+        }
+
+        private static readonly Rect[] SliceParts = new Rect[9];
+        private static readonly Rect[] SliceUvs = new Rect[9];
+
+        /// <summary>
+        /// The nine quads of a slice draw, in draw order — four corners, four edges, centre —
+        /// with the texture area each one shows. Pure geometry, so the offline preview can check
+        /// that the cuts line up without a GUI.
+        /// </summary>
+        internal static void Slice(Rect rect, int textureWidth, int textureHeight, int border, float scale,
+            Rect[] parts, Rect[] uvs)
+        {
+            var cuts = new SliceCuts(rect, textureWidth, textureHeight, border, scale);
+            var u1 = cuts.Slice / (float)textureWidth;
+            var u2 = 1f - u1;
+            var v1 = cuts.Slice / (float)textureHeight;
+            var v2 = 1f - v1;
+
+            // Back to logical space for the draw calls; dividing a whole device pixel by the
+            // scale puts the edge exactly where the matrix will map it back to.
+            var x0 = cuts.X0 / scale;
+            var y0 = cuts.Y0 / scale;
+            var x1 = cuts.X1 / scale;
+            var y1 = cuts.Y1 / scale;
+            var cornerW = cuts.CutX / scale;
+            var cornerH = cuts.CutY / scale;
+            var middleW = x1 - x0 - cornerW * 2f;
+            var middleH = y1 - y0 - cornerH * 2f;
+
+            parts[0] = new Rect(x0, y0, cornerW, cornerH);
+            parts[1] = new Rect(x1 - cornerW, y0, cornerW, cornerH);
+            parts[2] = new Rect(x0, y1 - cornerH, cornerW, cornerH);
+            parts[3] = new Rect(x1 - cornerW, y1 - cornerH, cornerW, cornerH);
+            parts[4] = new Rect(x0 + cornerW, y0, middleW, cornerH);
+            parts[5] = new Rect(x0 + cornerW, y1 - cornerH, middleW, cornerH);
+            parts[6] = new Rect(x0, y0 + cornerH, cornerW, middleH);
+            parts[7] = new Rect(x1 - cornerW, y0 + cornerH, cornerW, middleH);
+            parts[8] = new Rect(x0 + cornerW, y0 + cornerH, middleW, middleH);
+
+            uvs[0] = new Rect(0f, v2, u1, v1);
+            uvs[1] = new Rect(u2, v2, u1, v1);
+            uvs[2] = new Rect(0f, 0f, u1, v1);
+            uvs[3] = new Rect(u2, 0f, u1, v1);
+            uvs[4] = new Rect(u1, v2, u2 - u1, v1);
+            uvs[5] = new Rect(u1, 0f, u2 - u1, v1);
+            uvs[6] = new Rect(0f, v1, u1, v2 - v1);
+            uvs[7] = new Rect(u2, v1, u1, v2 - v1);
+            uvs[8] = new Rect(u1, v1, u2 - u1, v2 - v1);
+        }
+
         /// <summary>Nine-slice draw so a rounded texture keeps its corner radius at any size.</summary>
         internal static void DrawSliced(Rect rect, Texture2D texture, int border)
         {
             if (texture == null || rect.width <= 0f || rect.height <= 0f) return;
-            var width = texture.width;
-            var height = texture.height;
-            var slice = Mathf.Clamp(border, 0, Mathf.Min(width, height) / 2 - 1);
-            var left = Mathf.Min(slice, rect.width * 0.5f);
-            var right = Mathf.Min(slice, rect.width * 0.5f);
-            var top = Mathf.Min(slice, rect.height * 0.5f);
-            var bottom = Mathf.Min(slice, rect.height * 0.5f);
-            var u1 = slice / (float)width;
-            var u2 = 1f - u1;
-            var v1 = slice / (float)height;
-            var v2 = 1f - v1;
-
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x, rect.y, left, top), texture, new Rect(0f, v2, u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.xMax - right, rect.y, right, top), texture, new Rect(u2, v2, u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x, rect.yMax - bottom, left, bottom), texture, new Rect(0f, 0f, u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.xMax - right, rect.yMax - bottom, right, bottom), texture, new Rect(u2, 0f, u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x + left, rect.y, rect.width - left - right, top), texture, new Rect(u1, v2, u2 - u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x + left, rect.yMax - bottom, rect.width - left - right, bottom), texture, new Rect(u1, 0f, u2 - u1, v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x, rect.y + top, left, rect.height - top - bottom), texture, new Rect(0f, v1, u1, v2 - v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.xMax - right, rect.y + top, right, rect.height - top - bottom), texture, new Rect(u2, v1, u1, v2 - v1));
-            GUI.DrawTextureWithTexCoords(new Rect(rect.x + left, rect.y + top, rect.width - left - right, rect.height - top - bottom), texture, new Rect(u1, v1, u2 - u1, v2 - v1));
+            Slice(rect, texture.width, texture.height, border, DeviceScale, SliceParts, SliceUvs);
+            for (var i = 0; i < SliceParts.Length; i++)
+            {
+                var part = SliceParts[i];
+                // A collapsed strip (a rect narrower than its two corners) has nothing to draw.
+                if (part.width <= 0f || part.height <= 0f) continue;
+                GUI.DrawTextureWithTexCoords(part, texture, SliceUvs[i]);
+            }
         }
     }
 

@@ -481,6 +481,7 @@ namespace CaiYaStation
             if (reason == null && _escort != EscortOption.None && entry.Facts.TypeId == escortRules.ItemId)
                 reason = "护送物品不可同时寄送";
             row.BlockedReason = reason;
+            row.Equipped = entry.Facts.IsEquipped;
             row.Selected = _selected.Contains(entry.Facts.InstanceId);
             return row;
         }
@@ -647,7 +648,7 @@ namespace CaiYaStation
             var entry = _rows.Find(item => item.Facts.InstanceId == instanceId);
             if (entry == null)
             {
-                ShowHint("这个物品已经不在背包里了");
+                ShowHint("这个物品已经不在背包或装备栏里了");
                 return;
             }
             var reason = ItemEligibility.BlockReason(entry.Facts, _world!.Config.Protection);

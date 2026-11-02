@@ -4,6 +4,7 @@ using System.Linq;
 using CaiYaStation.Domain;
 using Duckov.Economy;
 using ItemStatsSystem;
+using ItemStatsSystem.Items;
 using UnityEngine;
 using Random = System.Random;
 
@@ -47,29 +48,74 @@ namespace CaiYaStation
 
         internal StateStore Store => _store;
 
+        /// <summary>
+        /// Everything the player could hand over: backpack stacks plus worn gear. Worn gear sits in
+        /// a character slot, and <c>Inventory.Content</c> only enumerates items that live directly
+        /// in that inventory, so the slot pass is what makes equipped weapons/armor visible at all.
+        /// </summary>
         internal IReadOnlyList<BackpackItem> ReadBackpack()
         {
             var result = new List<BackpackItem>();
+            var seen = new HashSet<int>();
+            Item? characterItem = null;
             try
             {
                 var actor = CharacterMainControl.Main;
-                var inventory = actor != null && actor.CharacterItem != null ? actor.CharacterItem.Inventory : null;
+                characterItem = actor != null ? actor.CharacterItem : null;
+                var inventory = characterItem != null ? characterItem.Inventory : null;
                 if (inventory == null) return result;
                 foreach (var item in inventory.Content)
                 {
                     if (item == null) continue;
-                    var entry = new BackpackItem { Item = item, Facts = Describe(item) };
-                    try { entry.Description = item.Description ?? ""; } catch { entry.Description = ""; }
-                    try { entry.Icon = item.Icon; } catch { entry.Icon = null; }
-                    try { entry.Quality = item.Quality; } catch { entry.Quality = 0; }
-                    result.Add(entry);
+                    if (!seen.Add(item.GetInstanceID())) continue;
+                    result.Add(DescribeEntry(item));
                 }
             }
             catch (Exception exception)
             {
                 _log("Backpack read failed: " + exception.Message);
             }
+            try
+            {
+                foreach (var item in EquippedItems(characterItem))
+                {
+                    if (!seen.Add(item.GetInstanceID())) continue;
+                    result.Add(DescribeEntry(item));
+                }
+            }
+            catch (Exception exception)
+            {
+                _log("Equipped read failed: " + exception.Message);
+            }
             return result;
+        }
+
+        private BackpackItem DescribeEntry(Item item)
+        {
+            var entry = new BackpackItem { Item = item, Facts = Describe(item) };
+            try { entry.Description = item.Description ?? ""; } catch { entry.Description = ""; }
+            try { entry.Icon = item.Icon; } catch { entry.Icon = null; }
+            try { entry.Quality = item.Quality; } catch { entry.Quality = 0; }
+            return entry;
+        }
+
+        /// <summary>
+        /// Items plugged into the character's own slots. The slot collection belongs to the
+        /// character item, so a nested container's slots are never walked here.
+        /// </summary>
+        private static IEnumerable<Item> EquippedItems(Item? characterItem)
+        {
+            SlotCollection? slots;
+            try { slots = characterItem != null ? characterItem.Slots : null; }
+            catch { slots = null; }
+            if (slots == null) yield break;
+            foreach (var slot in slots)
+            {
+                if (slot == null) continue;
+                Item? content;
+                try { content = slot.Content; } catch { content = null; }
+                if (content != null) yield return content;
+            }
         }
 
         internal ItemFacts Describe(Item item)
@@ -187,7 +233,7 @@ namespace CaiYaStation
             foreach (var instanceId in selectedInstanceIds)
             {
                 if (!byInstance.TryGetValue(instanceId, out var entry))
-                    return Fail("有物品已经不在背包里，请刷新后重试。");
+                    return Fail("有物品已经不在背包或装备栏里，请刷新后重试。");
                 var reason = ItemEligibility.BlockReason(entry.Facts, _config.Protection);
                 if (reason != null) return Fail(entry.Facts.Name + "：" + reason);
                 selected.Add(entry);
@@ -281,7 +327,7 @@ namespace CaiYaStation
                     }
                     else
                     {
-                        PlayerStorage.Push(live, true);
+                        PushDelivered(live);
                         line.Pushed = true;
                         _log("Shipment delivered item " + line.Name + " x" + line.StackCount);
                     }
@@ -366,7 +412,7 @@ namespace CaiYaStation
                              + " name=" + line.Name + " x" + line.StackCount);
                         continue;
                     }
-                    PlayerStorage.Push(live, true);
+                    PushDelivered(live);
                     line.Pushed = true;
                     _log("Recovered delivery " + line.Name + " x" + line.StackCount);
                 }
@@ -395,7 +441,7 @@ namespace CaiYaStation
                     if (!IsRecoveryExpired(journal))
                     {
                         journal.Stage = ShipmentStage.Interrupted;
-                        journal.Message = "恢复时仍有 " + unresolvedLines.Count + " 件未在背包中找到";
+                        journal.Message = "恢复时仍有 " + unresolvedLines.Count + " 件未在背包或装备栏中找到";
                         _store.SetPending(journal);
                         _store.SaveAllAndFlush();
                         _log("Shipment recovery incomplete " + journal.ShipmentId + " unresolved=" + unresolvedLines.Count);
@@ -454,10 +500,20 @@ namespace CaiYaStation
             _log("Shipment aborted " + journal.ShipmentId + ": " + reason);
         }
 
-        private static Item? FindLive(Inventory inventory, int instanceId)
+        /// <summary>Backpack stacks and worn gear, so a shipped weapon can still be located.</summary>
+        private static IEnumerable<Item> LiveItems(Inventory inventory)
         {
             foreach (var item in inventory.Content)
-                if (item != null && item.GetInstanceID() == instanceId) return item;
+                if (item != null) yield return item;
+            Item? characterItem;
+            try { characterItem = CharacterMainControl.Main?.CharacterItem; } catch { characterItem = null; }
+            foreach (var item in EquippedItems(characterItem)) yield return item;
+        }
+
+        private static Item? FindLive(Inventory inventory, int instanceId)
+        {
+            foreach (var item in LiveItems(inventory))
+                if (item.GetInstanceID() == instanceId) return item;
             return null;
         }
 
@@ -468,7 +524,7 @@ namespace CaiYaStation
         /// </summary>
         private static Item? FindLiveByFingerprint(Inventory inventory, JournalItem line, HashSet<int> claimed)
         {
-            foreach (var item in inventory.Content)
+            foreach (var item in LiveItems(inventory))
             {
                 if (item == null) continue;
                 var instanceId = item.GetInstanceID();
@@ -496,7 +552,7 @@ namespace CaiYaStation
             HashSet<int> claimed, bool exactValue, long minStackCount = 0)
         {
             Item? fallback = null;
-            foreach (var item in inventory.Content)
+            foreach (var item in LiveItems(inventory))
             {
                 if (item == null) continue;
                 var instanceId = item.GetInstanceID();
@@ -524,8 +580,80 @@ namespace CaiYaStation
                    && DateTimeOffset.UtcNow > created.ToUniversalTime().AddDays(RecoveryExpiryDays);
         }
 
-        private static void RemoveAndDestroy(Inventory inventory, Item item)
+        /// <summary>
+        /// A worn item is plugged into one of the character's slots, so the storage buffer never
+        /// sees it in the backpack inventory. Detach unplugs it from the slot (and removes it from
+        /// an inventory, which is a no-op for worn gear) — pushing a still-plugged item would leave
+        /// one copy equipped and one copy in the buffer.
+        /// </summary>
+        private void DetachForDelivery(Item item)
         {
+            try
+            {
+                if (item.PluggedIntoSlot == null) return;
+                item.Detach();
+                if (item.PluggedIntoSlot != null)
+                    throw new InvalidOperationException("物品仍挂在装备槽上，已中止本次发货");
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException("卸下装备失败：" + exception.Message, exception);
+            }
+        }
+
+        /// <summary>
+        /// Hands one stack to the storage buffer, unplugging worn gear first. If the buffer throws,
+        /// the item goes back on the slot it came from: a failed delivery must never delete a
+        /// player's weapon, and the pending journal would not be able to find an orphaned item.
+        /// </summary>
+        private void PushDelivered(Item item)
+        {
+            var slot = item.PluggedIntoSlot;
+            DetachForDelivery(item);
+            try
+            {
+                PlayerStorage.Push(item, true);
+            }
+            catch
+            {
+                TryReplug(slot, item);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Puts a stack back on the slot it came from after a failed push. Best effort only: every
+        /// step is guarded, because this runs while another exception is already unwinding.
+        /// </summary>
+        private void TryReplug(Slot? slot, Item item)
+        {
+            if (slot == null) return;
+            try
+            {
+                if (slot.Content == null && item.PluggedIntoSlot == null && !slot.Plug(item, out _))
+                    _log("Re-plug rejected by slot for id=" + item.GetInstanceID());
+            }
+            catch (Exception exception)
+            {
+                _log("Re-plug after failed delivery failed for id=" + item.GetInstanceID()
+                     + ": " + exception.Message);
+            }
+        }
+
+        private void RemoveAndDestroy(Inventory inventory, Item item)
+        {
+            try
+            {
+                if (item.PluggedIntoSlot != null) item.Detach();
+            }
+            catch (Exception exception)
+            {
+                _log("Detach before destroy failed for id=" + item.GetInstanceID() + ": " + exception.Message);
+            }
             inventory.RemoveItem(item);
             ItemTreeExtensions.DestroyTree(item);
         }

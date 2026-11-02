@@ -20,6 +20,9 @@ namespace CaiYaStation
         internal string? BlockedReason;
         internal bool Selected;
 
+        /// <summary>Worn gear: it shows in the list, but shipping it unequips it first.</summary>
+        internal bool Equipped;
+
         internal bool Eligible => BlockedReason == null;
 
         internal string CountText => StackCount > 1 ? "×" + StackCount : "1";
